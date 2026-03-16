@@ -1,5 +1,5 @@
 import React from 'react';
-import { Edit3, Plus } from 'lucide-react';
+import { Edit3, Plus } from './Icons';
 
 const LayoutSelector = ({
   isOpen,

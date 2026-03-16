@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, Sparkles, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Plus, Trash2, Search, Edit3, Trophy, Languages } from 'lucide-react';
+import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, Sparkles, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Plus, Trash2, Search, Edit3, Trophy, Languages } from './components/Icons';
 
 const LAYOUTS = [
   {

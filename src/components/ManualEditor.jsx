@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { PenTool, Sparkles, X, Check, ChevronRight, ChevronDown } from 'lucide-react';
+import { PenTool, Sparkles, X, Check, ChevronRight, ChevronDown } from './Icons';
 
 const ManualEditor = ({
   manualGrid,

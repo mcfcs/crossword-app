@@ -2,7 +2,7 @@
 // Layout creation and editing modal
 
 import React, { useState, useEffect } from 'react';
-import { Grid3X3, X, Save } from 'lucide-react';
+import { Grid3X3, X, Save } from './Icons';
 import { getLayoutStats } from '../utils/crosswordUtils';
 
 const LayoutEditorModal = ({

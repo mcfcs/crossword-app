@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { ChevronDown, ChevronRight, Trophy } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trophy } from './Icons';
 
 const PlayView = ({
   playGrid,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, Plus, Download, Search, Check, X, Edit3, Trash2 } from 'lucide-react';
+import { BookOpen, Plus, Download, Search, Check, X, Edit3, Trash2 } from './Icons';
 
 const DictionaryModal = ({
   isOpen,

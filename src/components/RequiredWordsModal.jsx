@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Zap, Shuffle } from 'lucide-react';
+import { X, Check, Zap, Shuffle } from './Icons';
 
 const RequiredWordsModal = ({
   isOpen,
