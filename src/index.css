@@ -1,0 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.tagalog-theme {
+  filter: hue-rotate(-15deg) saturate(1.1);
+}
