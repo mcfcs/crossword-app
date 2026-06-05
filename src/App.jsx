@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Languages } from './components/Icons';
 import DictionaryModal from './components/DictionaryModal';
 import LayoutEditorModal from './components/LayoutEditorModal';
@@ -7,7 +7,7 @@ import ManualEditor from './components/ManualEditor';
 import PlayView from './components/PlayView';
 import RequiredWordsModal from './components/RequiredWordsModal';
 import { DEFAULT_LAYOUTS } from './data/layouts';
-import { parseCSV, findSlots, assignNumbers, getWordFromGrid, getLayoutStats } from './utils/crosswordUtils';
+import { parseCSV, findSlots, assignNumbers, getWordFromGrid, getLayoutStats, getCellNumber } from './utils/crosswordUtils';
 
 const CrosswordGenerator = () => {
   const [activeTab, setActiveTab] = useState('auto');
@@ -77,10 +77,9 @@ const CrosswordGenerator = () => {
   const [editWord, setEditWord] = useState('');
   const [editClue, setEditClue] = useState('');
   
-  const autoGridRef = useRef(null);
-  const manualGridRef = useRef(null);
   const puzzleFileInputRef = useRef(null);
   const playTimerRef = useRef(null);
+  const workerRef = useRef(null);
 
   // =========== LOGGING ============
   // Helper to log debug messages
@@ -204,12 +203,12 @@ const CrosswordGenerator = () => {
 
   const difficultyColorClass = (label = '') => {
     const d = label.toUpperCase();
-    if (d === 'EASY') return 'text-sky-200';
-    if (d === 'FAIR') return 'text-emerald-200';
-    if (d === 'MODERATE') return 'text-amber-200';
-    if (d === 'HARD') return 'text-orange-200';
-    if (d === 'DIFFICULT') return 'text-rose-200';
-    return 'text-purple-200';
+    if (d === 'EASY') return 'text-inkblue';
+    if (d === 'FAIR') return 'text-grass';
+    if (d === 'MODERATE') return 'text-gold';
+    if (d === 'HARD') return 'text-accent';
+    if (d === 'DIFFICULT') return 'text-accent-deep';
+    return 'text-ink-soft';
   };
 
   const computePuzzleDifficulty = useCallback((gridData, clueSet) => {
@@ -342,7 +341,7 @@ const CrosswordGenerator = () => {
         workingWords,
         layout,
         setProgress,
-        () => cancelRef.current || (Date.now() - startTime > timeoutMs),
+        Math.max(0, timeoutMs - (Date.now() - startTime)),
         presetGrid,
         requiredMerged,
         requiredModeInput,
@@ -482,42 +481,6 @@ const CrosswordGenerator = () => {
     setShowLayoutSelector(false);
   };
 
-  const canPlaceWord = (grid, slot, word) => {
-    if (word.length !== slot.length) return false;
-    for (let i = 0; i < word.length; i++) {
-      const r = slot.direction === 'across' ? slot.row : slot.row + i;
-      const c = slot.direction === 'across' ? slot.col + i : slot.col;
-      if (grid[r][c] !== null && grid[r][c] !== word[i]) return false;
-    }
-    return true;
-  };
-
-  const placeWord = (grid, slot, word) => {
-    const newGrid = grid.map(row => [...row]);
-    for (let i = 0; i < word.length; i++) {
-      const r = slot.direction === 'across' ? slot.row : slot.row + i;
-      const c = slot.direction === 'across' ? slot.col + i : slot.col;
-      newGrid[r][c] = word[i];
-    }
-    return newGrid;
-  };
-
-  const getIntersections = (slot, slots) => {
-    const intersections = [];
-    for (const other of slots) {
-      if (slot.id === other.id) continue;
-      if (slot.direction === 'across' && other.direction === 'down') {
-        if (other.col >= slot.col && other.col < slot.col + slot.length && slot.row >= other.row && slot.row < other.row + other.length) {
-          intersections.push({ slot: other, myIndex: other.col - slot.col, theirIndex: slot.row - other.row });
-        }
-      } else if (slot.direction === 'down' && other.direction === 'across') {
-        if (slot.col >= other.col && slot.col < other.col + other.length && other.row >= slot.row && other.row < slot.row + slot.length) {
-          intersections.push({ slot: other, myIndex: other.row - slot.row, theirIndex: slot.col - other.col });
-        }
-      }
-    }
-    return intersections;
-  };
 
   // ============ WAVE FUNCTION COLLAPSE - CROSSWYRD STYLE (OPTIMIZED) ============
   // With frequent yields to prevent "Page Unresponsive" popup
@@ -537,543 +500,52 @@ const CrosswordGenerator = () => {
   // - Randomizes word selection to improve variety
   // - Yields frequently to keep UI responsive
   
-  const generateCrossword = async (wordList, layout, onProgress, shouldCancel, presetGrid = null, requiredWordsList = [], requiredModeArg = 'anchor', presetClues = {}) => {
-    const slots = findSlots(layout);
-    const rows = layout.length;
-    const cols = layout[0].length;
-    const requiredSet = new Set(requiredWordsList.map(w => w.toUpperCase()));
-    const requiredModeLocal = requiredModeArg || 'anchor';
-    
-    if (slots.length === 0) {
-      return { grid: null, placements: [], attempts: 0, complete: false };
-    }
-    
-    const emptyGrid = [];
-    for (let r = 0; r < rows; r++) {
-      const row = [];
-      for (let c = 0; c < cols; c++) {
-        if (layout[r][c] === '#') row.push('#');
-        else if (presetGrid && presetGrid[r] && presetGrid[r][c] && presetGrid[r][c] !== '#') row.push(presetGrid[r][c].toUpperCase());
-        else row.push(null);
+  // Runs the crossword solver in a Web Worker so the UI stays responsive and
+  // the solver can run flat-out (no setTimeout yields). Same return shape as
+  // before; the 4th argument is now the time budget in ms. Cancellation is
+  // driven by cancelRef plus terminating the worker.
+  const generateCrossword = (wordList, layout, onProgress, timeoutMs = 120000, presetGrid = null, requiredWordsList = [], requiredModeArg = 'anchor', presetClues = {}) =>
+    new Promise((resolve) => {
+      const emptyResult = { grid: null, placements: [], requiredPlaced: 0, attempts: 0, failedWord: null, complete: false };
+      let worker;
+      try {
+        worker = new Worker(new URL('./worker/crosswordWorker.js', import.meta.url), { type: 'module' });
+      } catch {
+        resolve(emptyResult);
+        return;
       }
-      emptyGrid.push(row);
-    }
-    
-    // Build word dictionary by length
-    const wordsByLength = {};
-    for (const item of wordList) {
-      const len = item.word.length;
-      if (!wordsByLength[len]) wordsByLength[len] = [];
-      wordsByLength[len].push(item);
-    }
-    
-    // Pre-compute: for each slot, which cells does it cover?
-    const slotCells = new Map();
-    for (const slot of slots) {
-      const cells = [];
-      for (let i = 0; i < slot.length; i++) {
-        const r = slot.direction === 'across' ? slot.row : slot.row + i;
-        const c = slot.direction === 'across' ? slot.col + i : slot.col;
-        cells.push({ r, c, index: i });
-      }
-      slotCells.set(slot.id, cells);
-    }
-    
-    // Pre-compute: for each cell, which slots use it?
-    const cellToSlots = {};
-    for (const slot of slots) {
-      const cells = slotCells.get(slot.id);
-      for (const cell of cells) {
-        const key = `${cell.r},${cell.c}`;
-        if (!cellToSlots[key]) cellToSlots[key] = [];
-        cellToSlots[key].push({ slot, index: cell.index });
-      }
-    }
+      workerRef.current = worker;
 
-    
-    // Shuffle array helper
-    const shuffleArray = (arr) => {
-      const shuffled = [...arr];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-      return shuffled;
-    };
-    
-    // ============ WFC SOLVER ============
-    const wfcSolve = async (startTime, attemptNum) => {
-      let lastPlacedWord = null;
-      let lastConflictWord = null;
-      const getLastPlacedInGrid = () => (placements.length ? placements[placements.length - 1].word : lastPlacedWord);
-      const getActiveConflictWord = () => lastConflictWord || (stateStack.length ? stateStack[stateStack.length - 1]?.triedWord : null) || getLastPlacedInGrid() || null;
-      // Initialize grid
-      const grid = [];
-      for (let r = 0; r < rows; r++) {
-        const row = [];
-        for (let c = 0; c < cols; c++) {
-          if (layout[r][c] === '#') {
-            row.push('#');
-          } else if (presetGrid && presetGrid[r] && presetGrid[r][c] && presetGrid[r][c] !== '#') {
-            row.push(presetGrid[r][c].toUpperCase());
-          } else {
-            row.push(null);
-          }
-        }
-        grid.push(row);
-      }
-      
-      // Cell-level possibilities
-      const cellPossibilities = {};
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (layout[r][c] !== '#') {
-            const preset = presetGrid && presetGrid[r] && presetGrid[r][c] && presetGrid[r][c] !== '#' ? presetGrid[r][c].toUpperCase() : null;
-            cellPossibilities[`${r},${c}`] = preset ? new Set([preset]) : new Set('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''));
-          }
-        }
-      }
+      let best = null;
+      let settled = false;
 
-      // Slot-level possibilities
-      const slotPossibilities = new Map();
-      for (const slot of slots) {
-        const candidates = wordsByLength[slot.length] || [];
-        slotPossibilities.set(slot.id, new Set(shuffleArray(candidates.map(c => c.word))));
-      }
-      
-      const usedWords = new Set();
-      const usedRequired = new Set();
-      const placements = [];
-      const placedSlotIds = new Set();
-      
-      // Get possible letters at a position for a slot
-      const getPossibleLettersAtPosition = (slotId, position) => {
-        const words = slotPossibilities.get(slotId);
-        const letters = new Set();
-        for (const word of words) {
-          if (position < word.length) {
-            letters.add(word[position]);
-          }
-        }
-        return letters;
-      };
-      
-      // Update cell possibilities
-      const updateCellPossibilities = (r, c) => {
-        const key = `${r},${c}`;
-        const slotsUsingCell = cellToSlots[key] || [];
-        
-        if (slotsUsingCell.length === 0) return true;
-        
-        let newPossibilities = new Set('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''));
-        
-        for (const { slot, index } of slotsUsingCell) {
-          if (placedSlotIds.has(slot.id)) continue;
-          
-          const slotLetters = getPossibleLettersAtPosition(slot.id, index);
-          newPossibilities = new Set([...newPossibilities].filter(l => slotLetters.has(l)));
-        }
-        
-        if (grid[r][c] !== null) {
-          newPossibilities = new Set([grid[r][c]]);
-        }
-        
-        cellPossibilities[key] = newPossibilities;
-        return newPossibilities.size > 0;
-      };
-      
-      // Filter slot words based on cell constraints
-      const filterSlotWords = (slot) => {
-        const cells = slotCells.get(slot.id);
-        const currentWords = slotPossibilities.get(slot.id);
-        const newWords = new Set();
-        
-        for (const word of currentWords) {
-          if (usedWords.has(word)) continue;
-          
-          let valid = true;
-          for (const cell of cells) {
-            const key = `${cell.r},${cell.c}`;
-            const letter = word[cell.index];
-            
-            if (grid[cell.r][cell.c] !== null) {
-              if (grid[cell.r][cell.c] !== letter) {
-                valid = false;
-                break;
-              }
-            } else {
-              if (!cellPossibilities[key].has(letter)) {
-                valid = false;
-                break;
-              }
-            }
-          }
-          
-          if (valid) {
-            newWords.add(word);
-          }
-        }
-        
-        slotPossibilities.set(slot.id, newWords);
-        return newWords.size > 0;
-      };
-      
-      // Propagate constraints (with yield for responsiveness)
-      const propagate = async () => {
-        let changed = true;
-        let iterations = 0;
-        const maxIterations = 500;
-        let yieldCounter = 0;
-        
-        while (changed && iterations < maxIterations) {
-          changed = false;
-          iterations++;
-          yieldCounter++;
-          
-          // Yield every 20 iterations to keep UI responsive
-          if (yieldCounter >= 20) {
-            yieldCounter = 0;
-            await new Promise(resolve => setTimeout(resolve, 0));
-            if (shouldCancel()) {
-              lastConflictWord = getActiveConflictWord();
-              return snapshot(); // Return current best on cancel
-            }
-          }
-          
-          // Update cell possibilities
-          for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-              if (layout[r][c] === '#') continue;
-              
-              const key = `${r},${c}`;
-              const oldSize = cellPossibilities[key].size;
-              
-              if (!updateCellPossibilities(r, c)) {
-                return false;
-              }
-              
-              if (cellPossibilities[key].size < oldSize) {
-                changed = true;
-              }
-            }
-          }
-          
-          // Filter words for unfilled slots
-          for (const slot of slots) {
-            if (placedSlotIds.has(slot.id)) continue;
-            
-            const oldSize = slotPossibilities.get(slot.id).size;
-            
-            if (!filterSlotWords(slot)) {
-              return false;
-            }
-            
-            if (slotPossibilities.get(slot.id).size < oldSize) {
-              changed = true;
-            }
-          }
-        }
-        
-        return true;
-      };
-      
-      // Calculate slot entropy
-      const getSlotEntropy = (slot) => {
-        const cells = slotCells.get(slot.id);
-        let totalEntropy = 0;
-        
-        for (const cell of cells) {
-          const key = `${cell.r},${cell.c}`;
-          totalEntropy += cellPossibilities[key].size;
-        }
-        
-        return totalEntropy / cells.length;
-      };
-      
-      // Find lowest entropy slot
-      const findLowestEntropySlot = () => {
-        let minEntropy = Infinity;
-        let minSlot = null;
-        
-        for (const slot of slots) {
-          if (placedSlotIds.has(slot.id)) continue;
-          
-          const words = slotPossibilities.get(slot.id);
-          if (words.size === 0) continue;
-          
-          const entropy = getSlotEntropy(slot);
-          const hasRequiredCandidate = [...words].some(w => requiredSet.has(w) && !usedRequired.has(w));
-          
-          let adjustedEntropy = entropy + Math.random() * 0.001;
-          if (requiredModeLocal === 'anchor' && hasRequiredCandidate) adjustedEntropy -= 1000;
-          if (requiredModeLocal === 'opportunistic' && hasRequiredCandidate) adjustedEntropy -= 200;
-          
-          if (adjustedEntropy < minEntropy) {
-            minEntropy = adjustedEntropy;
-            minSlot = slot;
-          }
-        }
-        
-        return minSlot;
-      };
-      
-      // Place word
-      const placeWord = (slot, word, clueOverride = '') => {
-        const cells = slotCells.get(slot.id);
-        for (const cell of cells) {
-          const existing = grid[cell.r][cell.c];
-          if (existing && existing !== word[cell.index] && existing !== '#') {
-            return false; // conflict, do not place
-          }
-        }
-        for (const cell of cells) {
-          grid[cell.r][cell.c] = word[cell.index];
-          cellPossibilities[`${cell.r},${cell.c}`] = new Set([word[cell.index]]);
-        }
-        usedWords.add(word);
-        if (requiredSet.has(word)) usedRequired.add(word);
-        placedSlotIds.add(slot.id);
-        lastPlacedWord = word;
-        
-        const presetKey = `${slot.direction}-${slot.row}-${slot.col}`;
-        const wordItem = wordList.find(w => w.word === word) || { word, clue: '' };
-        const finalClue = clueOverride || presetClues[presetKey] || wordItem.clue || '';
-        placements.push({ slot, word, clue: finalClue });
-        return true;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearInterval(poll);
+        try { worker.terminate(); } catch { /* ignore */ }
+        if (workerRef.current === worker) workerRef.current = null;
+        resolve(result || best || emptyResult);
       };
 
-      const snapshot = (backtracksCount = backtracks) => ({
-        grid: grid.map(row => [...row]),
-        placements: [...placements],
-        complete: placements.length === slots.length && usedRequired.size === requiredSet.size,
-        backtracks: backtracksCount,
-        requiredPlaced: usedRequired.size,
-        failedWord: getActiveConflictWord()
+      worker.onmessage = (e) => {
+        const msg = e.data;
+        if (msg.type === 'progress') onProgress(msg.text);
+        else if (msg.type === 'best') best = msg.result;
+        else if (msg.type === 'done') finish(msg.result);
+        else if (msg.type === 'error') finish(best);
+      };
+      worker.onerror = () => finish(best);
+
+      const poll = setInterval(() => {
+        if (cancelRef.current) finish(best);
+      }, 60);
+
+      worker.postMessage({
+        type: 'start',
+        payload: { wordList, layout, timeoutMs, presetGrid, requiredWordsList, requiredModeArg, presetClues },
       });
-      
-      // Save state
-      const saveState = () => {
-        return {
-          grid: grid.map(row => [...row]),
-          cellPossibilities: Object.fromEntries(
-            Object.entries(cellPossibilities).map(([k, v]) => [k, new Set(v)])
-          ),
-          slotPossibilities: new Map(
-            [...slotPossibilities.entries()].map(([k, v]) => [k, new Set(v)])
-          ),
-          usedWords: new Set(usedWords),
-          usedRequired: new Set(usedRequired),
-          placedSlotIds: new Set(placedSlotIds),
-          placements: [...placements]
-        };
-      };
-      
-      // Restore state
-      const restoreState = (state) => {
-        for (let r = 0; r < rows; r++) {
-          for (let c = 0; c < cols; c++) {
-            grid[r][c] = state.grid[r][c];
-          }
-        }
-        for (const [k, v] of Object.entries(state.cellPossibilities)) {
-          cellPossibilities[k] = new Set(v);
-        }
-        for (const [k, v] of state.slotPossibilities) {
-          slotPossibilities.set(k, new Set(v));
-        }
-        usedWords.clear();
-        for (const w of state.usedWords) usedWords.add(w);
-        usedRequired.clear();
-        for (const w of state.usedRequired) usedRequired.add(w);
-        placedSlotIds.clear();
-        for (const id of state.placedSlotIds) placedSlotIds.add(id);
-        placements.length = 0;
-        placements.push(...state.placements);
-      };
-      
-      // Initial propagation
-      const initResult = await propagate();
-      if (initResult === null) return snapshot(); // Cancelled
-      if (initResult === false) {
-        return { grid, placements, complete: false, backtracks: 0, requiredPlaced: usedRequired.size };
-      }
-
-      // Pre-place required words (anchor mode) if they fit current constraints
-      if (requiredModeLocal === 'anchor' && requiredSet.size > 0) {
-        const requiredList = shuffleArray([...requiredSet]);
-        for (const reqWord of requiredList) {
-          if (usedRequired.has(reqWord)) continue;
-          const candidateSlots = shuffleArray(slots.filter(s => s.length === reqWord.length && !placedSlotIds.has(s.id)));
-          for (const slot of candidateSlots) {
-            let fits = true;
-            for (let i = 0; i < slot.length; i++) {
-              const r = slot.direction === 'across' ? slot.row : slot.row + i;
-              const c = slot.direction === 'across' ? slot.col + i : slot.col;
-              const existing = grid[r][c];
-              if (existing && existing !== reqWord[i]) { fits = false; break; }
-            }
-            if (fits) {
-              placeWord(slot, reqWord);
-              break;
-            }
-          }
-        }
-      }
-
-      // Pre-place fully filled slots from preset grid even if not in dictionary
-      for (const slot of slots) {
-        if (placedSlotIds.has(slot.id)) continue;
-        const cells = slotCells.get(slot.id);
-        const letters = cells.map(cell => grid[cell.r][cell.c]);
-        if (letters.every(l => l && l !== '#')) {
-          const wordStr = letters.join('');
-          placeWord(slot, wordStr, presetClues[`${slot.direction}-${slot.row}-${slot.col}`] || '');
-        }
-      }
-      
-      // Backtracking stack
-      const stateStack = [];
-      let iterations = 0;
-      let backtracks = 0;
-      let lastYield = Date.now();
-      
-      // Main WFC loop
-      while (placements.length < slots.length) {
-        if (shouldCancel()) {
-          lastConflictWord = getActiveConflictWord();
-          return snapshot();
-        }
-        
-        iterations++;
-        
-        // Yield frequently to prevent page unresponsive
-        const now = Date.now();
-        if (now - lastYield > 50) { // Yield every 50ms
-          lastYield = now;
-          const elapsed = ((now - startTime) / 1000).toFixed(1);
-          onProgress(`Attempt ${attemptNum} (${elapsed}s): WFC ${placements.length}/${slots.length} slots, ${backtracks} backtracks...`);
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
-        
-        // Find slot with lowest entropy
-        const slot = findLowestEntropySlot();
-        
-        if (!slot) {
-          if (stateStack.length === 0) {
-            lastConflictWord = lastPlacedWord;
-            return { grid, placements, complete: false, backtracks, requiredPlaced: usedRequired.size, failedWord: lastConflictWord || lastPlacedWord || null };
-          }
-          
-          backtracks++;
-          const prevState = stateStack.pop();
-          lastConflictWord = prevState.triedWord || lastPlacedWord || getActiveConflictWord();
-          restoreState(prevState.state);
-          slotPossibilities.get(prevState.slot.id).delete(prevState.triedWord);
-          continue;
-        }
-        
-        const possibilities = [...slotPossibilities.get(slot.id)];
-        
-        if (possibilities.length === 0) {
-          if (stateStack.length === 0) {
-            lastConflictWord = lastPlacedWord;
-            return { grid, placements, complete: false, backtracks, requiredPlaced: usedRequired.size, failedWord: lastConflictWord || lastPlacedWord || null };
-          }
-          
-          backtracks++;
-          const prevState = stateStack.pop();
-          lastConflictWord = prevState.triedWord || lastPlacedWord || getActiveConflictWord();
-          restoreState(prevState.state);
-          slotPossibilities.get(prevState.slot.id).delete(prevState.triedWord);
-          continue;
-        }
-        
-        // Save state
-        const savedState = saveState();
-        const requiredOption = possibilities.find(w => requiredSet.has(w) && !usedRequired.has(w));
-        const chosenWord = requiredOption || possibilities[0];
-        
-        stateStack.push({
-          slot,
-          triedWord: chosenWord,
-          state: savedState
-        });
-        
-        // Place word
-        const placed = placeWord(slot, chosenWord);
-        if (!placed) {
-          slotPossibilities.get(slot.id).delete(chosenWord);
-          stateStack.pop();
-          continue;
-        }
-        
-        // Propagate
-        const propResult = await propagate();
-        
-        if (propResult === null) return snapshot(); // Cancelled
-        
-        if (propResult === false) {
-          backtracks++;
-          lastConflictWord = chosenWord || getActiveConflictWord();
-          restoreState(savedState);
-          slotPossibilities.get(slot.id).delete(chosenWord);
-          stateStack.pop();
-        }
-      }
-      
-      const requiredPlaced = usedRequired.size;
-      const complete = placements.length === slots.length && requiredPlaced === requiredSet.size;
-      return { grid, placements, complete, backtracks, requiredPlaced, failedWord: getActiveConflictWord() };
-    };
-    
-    // Run attempts
-    const startTime = Date.now();
-    let attempts = 0;
-    let bestResult = { grid: emptyGrid, placements: [], backtracks: 0, requiredPlaced: 0, failedWord: null };
-    let bestScore = 0;
-    let bestRequired = 0;
-    let lastResult = null;
-    
-    while (!shouldCancel()) {
-      attempts++;
-      
-      const result = await wfcSolve(startTime, attempts);
-      lastResult = result;
-      
-      if (result === null) break;
-      
-      if (result.complete) {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        onProgress(`Complete! WFC solved in ${elapsed}s (attempt ${attempts}, ${result.backtracks} backtracks)`);
-        return { ...result, attempts, complete: true, failedWord: null };
-      }
-      
-      if (result.requiredPlaced > bestRequired || (result.requiredPlaced === bestRequired && result.placements.length > bestScore)) {
-        bestRequired = result.requiredPlaced;
-        bestScore = result.placements.length;
-        const fallbackFailed = result.placements.length ? result.placements[result.placements.length - 1].word : result.failedWord || bestResult.failedWord || null;
-        bestResult = {
-          grid: result.grid.map(row => [...row]),
-          placements: [...result.placements],
-          backtracks: result.backtracks,
-          requiredPlaced: result.requiredPlaced,
-          failedWord: fallbackFailed
-        };
-      }
-      
-      // Yield between attempts
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-    
-    return {
-      grid: bestResult?.grid || lastResult?.grid,
-      placements: bestResult?.placements?.length ? bestResult.placements : (lastResult?.placements || []),
-      requiredPlaced: bestResult?.requiredPlaced || lastResult?.requiredPlaced || 0,
-      attempts,
-      failedWord: bestResult?.failedWord || lastResult?.failedWord || (lastResult?.placements?.length ? lastResult.placements[lastResult.placements.length - 1].word : null) || null,
-      complete: false
-    };
-  };
+    });
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -1151,7 +623,7 @@ const CrosswordGenerator = () => {
         workingWords, 
         layout, 
         setProgress,
-        () => cancelRef.current || (Date.now() - startTime > timeoutMs),
+        Math.max(0, timeoutMs - (Date.now() - startTime)),
         null,
         requiredMerged,
         requiredModeInput,
@@ -1182,7 +654,6 @@ const CrosswordGenerator = () => {
     const picked = bestRun || lastResult;
     const newGrid = picked?.grid;
     const placements = picked?.placements || [];
-    const attempts = picked?.attempts || 1;
     const complete = picked?.complete || false;
     const solveFailedWord = picked?.failedWord || null;
     const difficultyMeta = picked?.difficultyMeta || computePuzzleDifficulty(newGrid, clues);
@@ -1281,6 +752,11 @@ const CrosswordGenerator = () => {
   
   const cancelGeneration = () => {
     cancelRef.current = true;
+    if (workerRef.current) {
+      try { workerRef.current.postMessage({ type: 'cancel' }); } catch { /* ignore */ }
+      try { workerRef.current.terminate(); } catch { /* ignore */ }
+      workerRef.current = null;
+    }
   };
 
   const exportPuzzle = () => {
@@ -1572,11 +1048,7 @@ const CrosswordGenerator = () => {
     }, 500);
   };
 
-  const getNumberForCell = (r, c, clueSet = clues) => {
-    const across = clueSet.across.find(cl => cl.row === r && cl.col === c);
-    const down = clueSet.down.find(cl => cl.row === r && cl.col === c);
-    return across?.number || down?.number || null;
-  };
+  const getNumberForCell = (r, c, clueSet = clues) => getCellNumber(clueSet, r, c);
 
   const initializeManualGrid = useCallback((layoutIdx = currentLayoutIndex, layoutList = layouts) => {
     if (!layoutList[layoutIdx]) return;
@@ -2052,7 +1524,7 @@ const CrosswordGenerator = () => {
           const parsed = parseCSV(text);
           if (!cancelled && !tagalogMode && parsed.length > 0) setWords(parsed);
         }
-      } catch (err) { console.log('No default crosswords.csv found'); }
+      } catch { console.log('No default crosswords.csv found'); }
       if (!cancelled) {
         setCsvLoading(false);
         setProgress('');
@@ -2117,203 +1589,195 @@ const CrosswordGenerator = () => {
   const layoutIndexForTab = Math.min(activeTab === 'create' ? currentLayoutIndex : selectedLayoutIndex, Math.max(layouts.length - 1, 0));
 
   return (
-    <div className={`min-h-screen p-4 md:p-8 ${tagalogMode ? 'bg-gradient-to-br from-slate-900 via-red-950 to-slate-900 tagalog-theme' : 'bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900'}`} onKeyDown={activeTab === 'play' ? handlePlayKeyDown : handleKeyDown} tabIndex={0}>
+    <div className={`relative z-10 min-h-screen px-4 py-8 md:px-8 ${tagalogMode ? 'tagalog-theme' : ''}`} onKeyDown={activeTab === 'play' ? handlePlayKeyDown : handleKeyDown} tabIndex={0}>
       <div className="max-w-7xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-200 mb-2 tracking-tight">Crossword Studio</h1>
-          <p className={`${tagalogMode ? 'text-red-300/70' : 'text-purple-300/70'} text-sm tracking-widest uppercase`}>Generate • Create • Play</p>
-        </div>
+        {/* ===================== MASTHEAD ===================== */}
+        <header className="mb-8 animate-rise-in">
+          <div className="flex items-center justify-between gap-3 eyebrow">
+            <span>{tagalogMode ? 'Ang Pang-Araw-araw na Grid' : 'The Daily Grid'}</span>
+            <span className="hidden sm:inline normal-case tracking-normal font-mono text-[0.6rem] text-ink-faint">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+            </span>
+            <span>Vol. I · No. 1</span>
+          </div>
+          <div className="rule-hair my-2.5" />
+          <h1 className="text-center font-display font-black leading-[0.86] tracking-[-0.02em] text-ink text-[2.85rem] sm:text-6xl md:text-7xl">
+            Crossword <span className="italic text-accent">Studio</span>
+          </h1>
+          <div className="rule-double mt-3.5" />
+          <p className="mt-3 text-center font-display italic text-ink-soft text-base md:text-lg">
+            Set the grid · pull the words · play the proof
+          </p>
+        </header>
 
-        <div className="flex justify-center mb-4">
+        {/* ===================== EDITION TOGGLE ===================== */}
+        <div className="flex justify-center mb-7">
           <button
             onClick={() => setTagalogMode(prev => !prev)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all duration-300 border shadow-lg ${tagalogMode ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white border-red-500 shadow-red-500/30' : 'bg-white/10 text-purple-200 border-purple-500/30 hover:bg-white/20'}`}
+            className={`btn btn-sm ${tagalogMode ? 'btn-accent' : ''}`}
           >
-            <Languages size={18} />
-            Tagalog Mode {tagalogMode ? 'On' : 'Off'}
+            <Languages size={14} />
+            {tagalogMode ? 'Tagalog Edition · On' : 'Tagalog Edition · Off'}
           </button>
         </div>
-        
-        <div className="flex justify-center mb-6">
-          <div className={`bg-black/30 backdrop-blur-sm rounded-2xl p-1.5 border ${tagalogMode ? 'border-red-500/20' : 'border-purple-500/20'} flex gap-1 flex-wrap justify-center`}>
-            <button onClick={() => setActiveTab('auto')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all duration-300 ${activeTab === 'auto' ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-black shadow-lg shadow-amber-500/30' : 'text-purple-300 hover:text-white hover:bg-white/10'}`}>
-              <Puzzle size={18} />Generate
+
+        {/* ===================== SECTION NAV ===================== */}
+        <nav className="mb-7 flex justify-center">
+          <div className="flex flex-wrap items-end justify-center gap-1 border-b-2 border-ink/15">
+            <button onClick={() => setActiveTab('auto')} className={`tab ${activeTab === 'auto' ? 'tab-active' : ''}`}>
+              <Puzzle size={15} />Generate
             </button>
-            <button onClick={() => setActiveTab('create')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all duration-300 ${activeTab === 'create' ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-black shadow-lg shadow-amber-500/30' : 'text-purple-300 hover:text-white hover:bg-white/10'}`}>
-              <PenTool size={18} />Create
+            <button onClick={() => setActiveTab('create')} className={`tab ${activeTab === 'create' ? 'tab-active' : ''}`}>
+              <PenTool size={15} />Create
             </button>
-            <button onClick={() => setActiveTab('play')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all duration-300 ${activeTab === 'play' ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-black shadow-lg shadow-amber-500/30' : 'text-purple-300 hover:text-white hover:bg-white/10'}`}>
-              <Play size={18} />Play
+            <button onClick={() => setActiveTab('play')} className={`tab ${activeTab === 'play' ? 'tab-active' : ''}`}>
+              <Play size={13} />Play
             </button>
-            <button onClick={() => setShowDictionary(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all duration-300 text-purple-300 hover:text-white hover:bg-white/10">
-              <BookOpen size={18} />Dictionary
+            <button onClick={() => setShowDictionary(true)} className="tab">
+              <BookOpen size={15} />Dictionary
             </button>
           </div>
-        </div>
+        </nav>
         
         {activeTab !== 'play' ? (
-        <div className={`bg-black/40 backdrop-blur-md rounded-2xl border ${tagalogMode ? 'border-red-500/20' : 'border-purple-500/20'} p-6 mb-6 overflow-visible`}>
+        <div className="panel panel-pad mb-6 overflow-visible animate-rise-in" style={{ animationDelay: '60ms' }}>
           {csvLoading && (
             <div className="mb-4">
-              <div className="text-emerald-200 text-sm font-semibold">Loading CSV...</div>
-              <div className="mt-2 w-full bg-white/10 rounded-lg overflow-hidden">
-                <div className="h-2 w-full bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-400 animate-pulse" />
+              <div className="eyebrow text-ink-soft">Loading word list…</div>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-sm bg-ink/10">
+                <div className="h-full w-1/3 animate-pulse bg-accent" />
               </div>
             </div>
           )}
-          <div className="flex gap-3 flex-wrap items-center relative">
-            <label className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl cursor-pointer hover:from-purple-500 hover:to-indigo-500 transition-all duration-300 shadow-lg shadow-purple-500/20 font-medium">
-              <Upload size={18} />Upload CSV
+          <div className="flex gap-2.5 flex-wrap items-center relative">
+            <label className="btn cursor-pointer">
+              <Upload size={16} />Upload CSV
               <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
             </label>
-            
+
             <div className="relative">
-              <button onClick={() => setShowLayoutSelector(!showLayoutSelector)} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl hover:from-cyan-500 hover:to-blue-500 transition-all duration-300 shadow-lg shadow-cyan-500/20 font-medium">
-                <Grid3X3 size={18} />{layouts[layoutIndexForTab]?.name}
+              <button onClick={() => setShowLayoutSelector(!showLayoutSelector)} className="btn">
+                <Grid3X3 size={16} />{layouts[layoutIndexForTab]?.name}
               </button>
             </div>
 
-            {activeTab === 'play' && (
-            <div className="flex items-center gap-2 text-sm text-purple-100 bg-white/5 border border-purple-500/30 px-3 py-2 rounded-xl">
-              <span className="text-xs uppercase tracking-wide text-purple-300/80">Difficulty</span>
-              <div className="flex flex-wrap gap-1">
-                  {['random','easy','fair','moderate','hard','difficult'].map(opt => (
-                    <button
-                      key={opt}
-                      onClick={() => setDifficultyChoice(opt)}
-                      className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition ${
-                        difficultyChoice === opt ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-200 hover:bg-white/10'
-                      }`}
-                    >
-                      {opt.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {activeTab === 'auto' && !isGenerating && (
+              <button onClick={() => { setRequiredAction('auto'); setShowRequiredModal(true); }} disabled={words.length === 0} className="btn btn-accent">
+                <RefreshCw size={16} />Generate
+              </button>
             )}
 
-          
-            
-            {activeTab === 'auto' && !isGenerating && (
-              <button onClick={() => { setRequiredAction('auto'); setShowRequiredModal(true); }} disabled={words.length === 0} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl hover:from-emerald-500 hover:to-teal-500 transition-all duration-300 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20 font-medium">
-                <RefreshCw size={18} />Generate
-              </button>
-            )}
-            
             {activeTab === 'auto' && isGenerating && (
-              <button onClick={cancelGeneration} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-xl hover:from-rose-500 hover:to-red-500 transition-all duration-300 shadow-lg shadow-rose-500/20 font-medium">
-                <X size={18} />Stop
+              <button onClick={cancelGeneration} className="btn btn-ink">
+                <X size={16} />Stop the Press
               </button>
             )}
-            
+
             {activeTab === 'create' && (
-              <button onClick={() => initializeManualGrid(currentLayoutIndex)} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-rose-600 to-pink-600 text-white rounded-xl hover:from-rose-500 hover:to-pink-500 transition-all duration-300 shadow-lg shadow-rose-500/20 font-medium">
-                <RefreshCw size={18} />Clear Grid
+              <button onClick={() => initializeManualGrid(currentLayoutIndex)} className="btn btn-ghost">
+                <RefreshCw size={16} />Clear Grid
               </button>
             )}
-            
+
             {activeTab === 'create' && !isGenerating && (
-              <button onClick={handleManualGenerate} disabled={words.length === 0} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl hover:from-emerald-500 hover:to-teal-500 transition-all duration-300 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20 font-medium">
-                <RefreshCw size={18} />Generate Remaining
+              <button onClick={handleManualGenerate} disabled={words.length === 0} className="btn btn-accent">
+                <RefreshCw size={16} />Generate Remaining
               </button>
             )}
-            
+
             {activeTab === 'create' && isGenerating && (
-              <button onClick={cancelGeneration} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-xl hover:from-rose-500 hover:to-red-500 transition-all duration-300 shadow-lg shadow-rose-500/20 font-medium">
-                <X size={18} />Stop
+              <button onClick={cancelGeneration} className="btn btn-ink">
+                <X size={16} />Stop the Press
               </button>
             )}
-            
+
             {activeTab === 'auto' && grid && (
-              <button onClick={() => startPlayMode(grid, clues)} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-500 hover:to-emerald-500 transition-all duration-300 shadow-lg shadow-green-500/20 font-medium">
-                <Play size={18} />Play This Puzzle
+              <button onClick={() => startPlayMode(grid, clues)} className="btn btn-ink">
+                <Play size={13} />Play This Puzzle
               </button>
             )}
-            
+
             {activeTab === 'create' && (
-              <div className="w-full flex flex-col gap-2 md:max-w-3xl">
-                <div className="text-sm text-purple-200 font-semibold">Specific words for Create</div>
-                <div className="text-xs text-purple-300/80">
-                  Current Layout: {layouts[currentLayoutIndex]?.grid.length}x{layouts[currentLayoutIndex]?.grid[0]?.length} · Max words: {findSlots(layouts[currentLayoutIndex]?.grid || []).length} · Lengths: {Object.entries(getLayoutStats(layouts[currentLayoutIndex]?.grid || []).lengthCounts || {}).sort((a,b)=>a[0]-b[0]).map(([len,count]) => `${len}(${count})`).join(', ')}
+              <div className="w-full flex flex-col gap-3 md:max-w-3xl border-t border-ink/12 mt-1 pt-4">
+                <div className="eyebrow text-ink-soft">Specific Words for Create</div>
+                <div className="text-xs text-ink-faint font-mono leading-relaxed">
+                  Layout {layouts[currentLayoutIndex]?.grid.length}×{layouts[currentLayoutIndex]?.grid[0]?.length} · Max words {findSlots(layouts[currentLayoutIndex]?.grid || []).length} · Lengths {Object.entries(getLayoutStats(layouts[currentLayoutIndex]?.grid || []).lengthCounts || {}).sort((a,b)=>a[0]-b[0]).map(([len,count]) => `${len}(${count})`).join(', ')}
                 </div>
-                <div className="flex flex-wrap gap-1 items-center text-[11px] text-purple-200">
-                  Difficulty:
-                  <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  <span className="eyebrow mr-1">Difficulty</span>
                   {['random','easy','fair','moderate','hard','difficult'].map(opt => (
                     <button
                       key={opt}
                       onClick={() => setDifficultyChoice(opt)}
-                      className={`px-2 py-1 rounded-md border text-[11px] font-semibold transition ${
-                        difficultyChoice === opt ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-200 hover:bg-white/5'
-                        }`}
-                      >
-                        {opt.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
+                      className={`px-2.5 py-1 rounded-sm border text-[11px] font-bold uppercase tracking-wide transition ${difficultyChoice === opt ? 'border-ink bg-ink text-paper-raised' : 'border-ink/25 text-ink-soft hover:bg-ink/5'}`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
                 </div>
                 <textarea
                   value={manualRequiredInput}
                   onChange={(e) => setManualRequiredInput(e.target.value)}
                   placeholder="Comma-separated words to force into the puzzle (optional)"
-                  className="w-full bg-white/5 border border-purple-500/30 rounded-xl px-3 py-2 text-white placeholder-purple-300/60 focus:outline-none focus:border-amber-500/50"
+                  className="field font-mono text-sm"
                   rows={2}
                 />
-                <div className="flex gap-3 items-center flex-wrap">
-                  <span className="text-xs text-purple-300/70">Placement mode:</span>
-                  <label className={`px-3 py-1.5 rounded-lg border cursor-pointer text-sm ${manualRequiredMode === 'anchor' ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-200 hover:bg-white/10'}`}>
+                <div className="flex gap-2.5 items-center flex-wrap">
+                  <span className="eyebrow">Placement</span>
+                  <label className={`px-3 py-1.5 rounded-sm border cursor-pointer text-xs font-semibold ${manualRequiredMode === 'anchor' ? 'border-ink bg-ink text-paper-raised' : 'border-ink/25 text-ink-soft hover:bg-ink/5'}`}>
                     <input type="radio" className="hidden" checked={manualRequiredMode === 'anchor'} onChange={() => setManualRequiredMode('anchor')} />
                     Place first
                   </label>
-                  <label className={`px-3 py-1.5 rounded-lg border cursor-pointer text-sm ${manualRequiredMode === 'opportunistic' ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-200 hover:bg-white/10'}`}>
+                  <label className={`px-3 py-1.5 rounded-sm border cursor-pointer text-xs font-semibold ${manualRequiredMode === 'opportunistic' ? 'border-ink bg-ink text-paper-raised' : 'border-ink/25 text-ink-soft hover:bg-ink/5'}`}>
                     <input type="radio" className="hidden" checked={manualRequiredMode === 'opportunistic'} onChange={() => setManualRequiredMode('opportunistic')} />
                     Fill flexibly
                   </label>
-                  <span className="text-xs text-purple-400">(leave empty to generate normally)</span>
+                  <span className="text-xs text-ink-faint italic">(leave empty to generate normally)</span>
                 </div>
               </div>
             )}
-            
-            <button onClick={downloadPuzzle} disabled={activeTab === 'auto' ? !grid : !manualGrid} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl hover:from-violet-500 hover:to-purple-500 transition-all duration-300 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed shadow-lg shadow-violet-500/20 font-medium">
-              <Download size={18} />Download
+
+            <span className="hidden md:block ml-auto h-6 w-px bg-ink/15" />
+
+            <button onClick={downloadPuzzle} disabled={activeTab === 'auto' ? !grid : !manualGrid} className="btn">
+              <Download size={16} />Download
             </button>
-            
-            <button onClick={exportPuzzle} disabled={activeTab === 'auto' ? !grid : !manualGrid} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl hover:from-amber-500 hover:to-orange-500 transition-all duration-300 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20 font-medium">
-              <Save size={18} />Export
+
+            <button onClick={exportPuzzle} disabled={activeTab === 'auto' ? !grid : !manualGrid} className="btn">
+              <Save size={16} />Export
             </button>
-            
-            <label className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl cursor-pointer hover:from-teal-500 hover:to-cyan-500 transition-all duration-300 shadow-lg shadow-teal-500/20 font-medium">
-              <FolderOpen size={18} />Import
+
+            <label className="btn cursor-pointer">
+              <FolderOpen size={16} />Import
               <input type="file" accept=".json" onChange={(e) => { importPuzzle(e); }} ref={puzzleFileInputRef} className="hidden" />
             </label>
-            
-            <button onClick={() => setDebugMode(!debugMode)} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all duration-300 font-medium ${debugMode ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-500/20' : 'bg-white/10 text-purple-300 hover:bg-white/20'}`}>
-              <Bug size={18} />Debug
+
+            <button onClick={() => setDebugMode(!debugMode)} className={`btn btn-sm ${debugMode ? 'btn-ink' : 'btn-ghost'}`}>
+              <Bug size={15} />Debug
             </button>
           </div>
-          
-          
-          <div className="mt-4 text-purple-300/60 text-sm">CSV Format: Date,Word,Clue • Place <code className="bg-white/10 px-1 rounded">crosswords.csv</code> in public folder for auto-load</div>
-          
-          {isGenerating && <div className="mt-4 bg-purple-500/20 border border-purple-500/30 text-purple-200 px-4 py-3 rounded-xl flex items-center gap-3"><div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-300 border-t-transparent"></div>{progress}</div>}
-          {!isGenerating && error && <div className="mt-4 bg-rose-500/20 border border-rose-500/30 text-rose-200 px-4 py-3 rounded-xl">{error}</div>}
-          {!isGenerating && progress && <div className="mt-4 bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 px-4 py-3 rounded-xl">{progress}</div>}
-          {words.length > 0 && !isGenerating && <div className="mt-4 text-purple-300/80 text-sm flex items-center gap-2"><Check size={16} className="text-emerald-400" />Loaded {words.length} words from CSV</div>}
+
+          <div className="mt-4 text-ink-faint text-xs">CSV format: <span className="font-mono text-ink-soft">Date, Word, Clue</span> · drop <code className="chip">crosswords.csv</code> in the public folder for auto-load.</div>
+
+          {isGenerating && <div className="mt-4 flex items-center gap-3 border-l-2 border-ink bg-paper-sunken px-4 py-3 text-ink-soft text-sm"><span className="h-4 w-4 animate-spin rounded-full border-2 border-ink/25 border-t-ink" />{progress}</div>}
+          {!isGenerating && error && <div className="mt-4 border-l-2 border-accent bg-accent/8 px-4 py-3 text-accent-deep text-sm font-medium">{error}</div>}
+          {!isGenerating && progress && <div className="mt-4 border-l-2 border-grass bg-grass/8 px-4 py-3 text-grass text-sm font-medium">{progress}</div>}
+          {words.length > 0 && !isGenerating && <div className="mt-4 text-ink-soft text-sm flex items-center gap-2"><Check size={15} className="text-grass" />Loaded <b className="font-mono">{words.length}</b> words from CSV</div>}
         </div>
         ) : (
-        <div className={`bg-black/40 backdrop-blur-md rounded-2xl border ${tagalogMode ? 'border-red-500/20' : 'border-purple-500/20'} p-6 mb-6 overflow-visible`}>
-          <div className="flex gap-3 flex-wrap items-center relative">
-            <label className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl cursor-pointer hover:from-purple-500 hover:to-indigo-500 transition-all duration-300 shadow-lg shadow-purple-500/20 font-medium">
-              <Upload size={18} />Upload CSV
+        <div className="panel panel-pad mb-6 overflow-visible animate-rise-in" style={{ animationDelay: '60ms' }}>
+          <div className="flex gap-2.5 flex-wrap items-center relative">
+            <label className="btn cursor-pointer">
+              <Upload size={16} />Upload CSV
               <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
             </label>
-            
+
             <div className="relative">
-              <button onClick={() => setShowLayoutSelector(!showLayoutSelector)} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-xl hover:from-cyan-500 hover:to-blue-500 transition-all duration-300 shadow-lg shadow-cyan-500/20 font-medium">
-                <Grid3X3 size={18} />{layouts[layoutIndexForTab]?.name}
+              <button onClick={() => setShowLayoutSelector(!showLayoutSelector)} className="btn">
+                <Grid3X3 size={16} />{layouts[layoutIndexForTab]?.name}
               </button>
             </div>
-            
+
             {!isGenerating && (
               <button
                 onClick={() => {
@@ -2325,69 +1789,82 @@ const CrosswordGenerator = () => {
                   }
                 }}
                 disabled={words.length === 0}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl hover:from-emerald-500 hover:to-teal-500 transition-all duration-300 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/20 font-medium"
+                className="btn btn-accent"
               >
-                <RefreshCw size={18} />Generate &amp; Play
+                <RefreshCw size={16} />Generate &amp; Play
               </button>
             )}
-            
+
             {isGenerating && (
-              <button onClick={cancelGeneration} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-xl hover:from-rose-500 hover:to-red-500 transition-all duration-300 shadow-lg shadow-rose-500/20 font-medium">
-                <X size={18} />Stop
+              <button onClick={cancelGeneration} className="btn btn-ink">
+                <X size={16} />Stop the Press
               </button>
             )}
-            
+
             {latestGrid && latestClues && !isGenerating && (
-              <button onClick={() => startPlayMode(latestGrid, latestClues)} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-500 hover:to-emerald-500 transition-all duration-300 shadow-lg shadow-green-500/20 font-medium">
-                <Play size={18} />Play Latest Puzzle
+              <button onClick={() => startPlayMode(latestGrid, latestClues)} className="btn btn-ink">
+                <Play size={13} />Play Latest Puzzle
               </button>
             )}
-            
-            <label className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl cursor-pointer hover:from-teal-500 hover:to-cyan-500 transition-all duration-300 shadow-lg shadow-teal-500/20 font-medium">
-              <FolderOpen size={18} />Import to Play
+
+            <label className="btn cursor-pointer">
+              <FolderOpen size={16} />Import to Play
               <input type="file" accept=".json" onChange={(e) => { importPuzzlePlay(e); }} ref={puzzleFileInputRef} className="hidden" />
             </label>
-            
-            <button onClick={() => setDebugMode(!debugMode)} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all duration-300 font-medium ${debugMode ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-500/20' : 'bg-white/10 text-purple-300 hover:bg-white/20'}`}>
-              <Bug size={18} />Debug
+
+            <button onClick={() => setDebugMode(!debugMode)} className={`btn btn-sm ${debugMode ? 'btn-ink' : 'btn-ghost'}`}>
+              <Bug size={15} />Debug
             </button>
           </div>
-          
-          <div className="mt-4 text-purple-300/60 text-sm">Stay in Play mode: upload a CSV, pick a layout, then generate to jump straight into playing, or import a saved puzzle JSON.</div>
-          
-          {isGenerating && <div className="mt-4 bg-purple-500/20 border border-purple-500/30 text-purple-200 px-4 py-3 rounded-xl flex items-center gap-3"><div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-300 border-t-transparent"></div>{progress}</div>}
-          {!isGenerating && error && <div className="mt-4 bg-rose-500/20 border border-rose-500/30 text-rose-200 px-4 py-3 rounded-xl">{error}</div>}
-          {!isGenerating && progress && <div className="mt-4 bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 px-4 py-3 rounded-xl">{progress}</div>}
-          {words.length > 0 && !isGenerating && <div className="mt-4 text-purple-300/80 text-sm flex items-center gap-2"><Check size={16} className="text-emerald-400" />Loaded {words.length} words from CSV</div>}
+
+          <div className="mt-4 text-ink-faint text-xs">Stay in Play mode: upload a CSV, pick a layout, then generate to jump straight into playing — or import a saved puzzle JSON.</div>
+
+          {isGenerating && <div className="mt-4 flex items-center gap-3 border-l-2 border-ink bg-paper-sunken px-4 py-3 text-ink-soft text-sm"><span className="h-4 w-4 animate-spin rounded-full border-2 border-ink/25 border-t-ink" />{progress}</div>}
+          {!isGenerating && error && <div className="mt-4 border-l-2 border-accent bg-accent/8 px-4 py-3 text-accent-deep text-sm font-medium">{error}</div>}
+          {!isGenerating && progress && <div className="mt-4 border-l-2 border-grass bg-grass/8 px-4 py-3 text-grass text-sm font-medium">{progress}</div>}
+          {words.length > 0 && !isGenerating && <div className="mt-4 text-ink-soft text-sm flex items-center gap-2"><Check size={15} className="text-grass" />Loaded <b className="font-mono">{words.length}</b> words from CSV</div>}
         </div>
         )}
         
         {debugMode && debugLog.length > 0 && (
-          <div className="bg-black/60 backdrop-blur-md rounded-2xl border border-purple-500/20 p-4 mb-6 font-mono text-xs max-h-64 overflow-y-auto">
-            <div className="flex justify-between items-center mb-3"><h2 className="text-amber-400 font-bold">Debug Log</h2><button onClick={() => setDebugLog([])} className="px-3 py-1 bg-purple-500/30 rounded-lg text-purple-300 hover:bg-purple-500/50 transition">Clear</button></div>
-            {debugLog.map((line, i) => <div key={i} className="text-emerald-400/80 mb-1">{line}</div>)}
+          <div className="panel p-4 mb-6 font-mono text-xs max-h-64 overflow-y-auto">
+            <div className="flex justify-between items-center mb-3"><h2 className="eyebrow text-ink">Debug Log</h2><button onClick={() => setDebugLog([])} className="btn btn-sm btn-ghost">Clear</button></div>
+            {debugLog.map((line, i) => <div key={i} className="text-ink-soft mb-1">{line}</div>)}
           </div>
         )}
         
         {activeTab === 'auto' && grid && (
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="xl:col-span-2 bg-black/40 backdrop-blur-md rounded-2xl border border-purple-500/20 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-amber-300 flex items-center gap-2"><Puzzle size={20} />Puzzle Grid</h2>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-rise-in" style={{ animationDelay: '120ms' }}>
+            <div className="xl:col-span-2 panel panel-pad">
+              <div className="flex items-end justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="eyebrow">The Puzzle</div>
+                  <h2 className="font-display text-2xl font-semibold text-ink leading-tight">Proof Grid</h2>
+                </div>
                 {difficultyInfo?.label && (
-                  <span className="px-4 py-2 rounded-full bg-white/5 border border-purple-500/30 font-semibold text-base text-purple-100">
-                    Difficulty: <span className={`${difficultyColorClass(difficultyInfo.label)} font-bold`}>{difficultyInfo.label}</span>{difficultyInfo.score !== null ? ` (${Math.round(difficultyInfo.score)})` : ''}
+                  <span className="inline-flex items-center gap-2 border border-ink/20 bg-paper-sunken px-3 py-1.5 rounded-sm">
+                    <span className="eyebrow">Difficulty</span>
+                    <span className={`font-display font-semibold ${difficultyColorClass(difficultyInfo.label)}`}>{difficultyInfo.label}</span>
+                    {difficultyInfo.score !== null && <span className="font-mono text-xs text-ink-faint">({Math.round(difficultyInfo.score)})</span>}
                   </span>
                 )}
               </div>
-              <div className="overflow-x-auto"><div className="inline-block">
-                {grid.map((row, r) => <div key={r} className="flex">{row.map((cell, c) => <div key={c} className={`w-9 h-9 md:w-10 md:h-10 border border-purple-500/30 flex items-center justify-center text-sm font-bold relative transition-colors ${cell === '#' ? 'bg-slate-800' : 'bg-white/95'}`}>{cell !== '#' && getNumberForCell(r, c) && <span className="absolute top-0.5 left-1 text-[10px] text-slate-500 font-medium">{getNumberForCell(r, c)}</span>}{cell !== '#' && cell !== null && <span className="text-slate-800">{cell}</span>}</div>)}</div>)}
+              <div className="rule-hair my-4" />
+              <div className="overflow-x-auto pb-2"><div className="xw-grid">
+                {grid.map((row, r) => <div key={r} className="flex">{row.map((cell, c) => <div key={c} className={`xw-cell w-9 h-9 md:w-10 md:h-10 text-sm md:text-base ${cell === '#' ? 'xw-cell--block' : ''}`}>{cell !== '#' && getNumberForCell(r, c) && <span className="xw-num">{getNumberForCell(r, c)}</span>}{cell !== '#' && cell !== null && <span className="xw-letter">{cell}</span>}</div>)}</div>)}
               </div></div>
             </div>
-            <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-purple-500/20 p-6 max-h-[600px] overflow-y-auto">
-              <h2 className="text-xl font-bold text-amber-300 mb-4">Clues</h2>
-              <div className="mb-6"><h3 className="font-bold text-purple-300 mb-3 flex items-center gap-2"><ChevronRight size={16} />Across</h3>{clues.across.map(clue => <div key={`across-${clue.number}`} className="mb-2 text-sm text-purple-100/80 pl-4 border-l-2 border-purple-500/30"><span className="font-semibold text-amber-300">{clue.number}.</span> {clue.clue}</div>)}</div>
-              <div><h3 className="font-bold text-purple-300 mb-3 flex items-center gap-2"><ChevronDown size={16} />Down</h3>{clues.down.map(clue => <div key={`down-${clue.number}`} className="mb-2 text-sm text-purple-100/80 pl-4 border-l-2 border-purple-500/30"><span className="font-semibold text-amber-300">{clue.number}.</span> {clue.clue}</div>)}</div>
+            <div className="panel panel-pad max-h-[640px] overflow-y-auto">
+              <div className="eyebrow">Solutions</div>
+              <h2 className="font-display text-2xl font-semibold text-ink mb-4">Clues</h2>
+              <div className="mb-6">
+                <h3 className="eyebrow text-ink flex items-center gap-1.5 border-b border-ink/15 pb-1.5 mb-3"><ChevronRight size={13} />Across</h3>
+                {clues.across.map(clue => <div key={`across-${clue.number}`} className="mb-2.5 text-sm text-ink-soft leading-snug"><span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{clue.clue}</div>)}
+              </div>
+              <div>
+                <h3 className="eyebrow text-ink flex items-center gap-1.5 border-b border-ink/15 pb-1.5 mb-3"><ChevronDown size={13} />Down</h3>
+                {clues.down.map(clue => <div key={`down-${clue.number}`} className="mb-2.5 text-sm text-ink-soft leading-snug"><span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{clue.clue}</div>)}
+              </div>
             </div>
           </div>
         )}
@@ -2432,31 +1909,27 @@ const CrosswordGenerator = () => {
         )}
         
         {activeTab === 'auto' && !grid && !isGenerating && (
-          <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-purple-500/20 p-12 text-center">
-            <Puzzle size={64} className="mx-auto text-purple-500/50 mb-4" />
-            <h3 className="text-xl font-bold text-purple-300 mb-2">No Puzzle Yet</h3>
-            <p className="text-purple-300/60">Upload a CSV file to generate your crossword puzzle, or import a saved puzzle</p>
+          <div className="panel p-12 text-center animate-rise-in" style={{ animationDelay: '120ms' }}>
+            <Puzzle size={56} className="mx-auto text-ink/25 mb-4" />
+            <h3 className="font-display text-2xl font-semibold text-ink mb-2">No Edition Set</h3>
+            <p className="text-ink-faint max-w-sm mx-auto">Upload a CSV word list to typeset a fresh crossword — or import a puzzle you saved earlier.</p>
           </div>
         )}
         
         {/* PLAY MODE */}
         {activeTab === 'play' && (
-          <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-purple-100">
-            <span className="text-xs uppercase tracking-wide text-purple-300/80">Difficulty</span>
-            <div className="flex flex-wrap gap-1">
-              {['random','easy','fair','moderate','hard','difficult'].map(opt => (
-                <button
-                  key={opt}
-                  onClick={() => setDifficultyChoice(opt)}
-                  className={`px-3 py-1.5 rounded-md border text-xs font-semibold transition ${
-                    difficultyChoice === opt ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-200 hover:bg-white/5'
-                  }`}
-                >
-                  {opt.toUpperCase()}
-                </button>
-              ))}
-            </div>
-            <span className="text-xs text-purple-300/70">(applies when you Generate & Play)</span>
+          <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            <span className="eyebrow mr-1">Difficulty</span>
+            {['random','easy','fair','moderate','hard','difficult'].map(opt => (
+              <button
+                key={opt}
+                onClick={() => setDifficultyChoice(opt)}
+                className={`px-2.5 py-1 rounded-sm border text-[11px] font-bold uppercase tracking-wide transition ${difficultyChoice === opt ? 'border-ink bg-ink text-paper-raised' : 'border-ink/25 text-ink-soft hover:bg-ink/5'}`}
+              >
+                {opt}
+              </button>
+            ))}
+            <span className="text-xs text-ink-faint italic ml-1">(applies when you Generate &amp; Play)</span>
           </div>
         )}
 
@@ -2487,19 +1960,19 @@ const CrosswordGenerator = () => {
         )}
         
         {activeTab === 'play' && !playGrid && (
-          <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-purple-500/20 p-12 text-center">
-            <Play size={64} className="mx-auto text-purple-500/50 mb-4" />
-            <h3 className="text-xl font-bold text-purple-300 mb-2">No Puzzle to Play</h3>
-            <p className="text-purple-300/70 mb-6">Use the controls above to generate a puzzle in Play mode or import a saved crossword to start immediately.</p>
+          <div className="panel p-12 text-center animate-rise-in">
+            <Play size={44} className="mx-auto text-ink/25 mb-4" />
+            <h3 className="font-display text-2xl font-semibold text-ink mb-2">Nothing on the Stand</h3>
+            <p className="text-ink-faint mb-6 max-w-md mx-auto">Generate a puzzle in Play mode, or import a saved crossword to start solving immediately.</p>
             <div className="flex flex-wrap justify-center gap-3">
-              <button onClick={() => generatePuzzle(words, selectedLayoutIndex, true)} disabled={words.length === 0 || isGenerating} className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl font-semibold hover:from-emerald-500 hover:to-teal-500 transition disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed">
-                Generate &amp; Play
+              <button onClick={() => generatePuzzle(words, selectedLayoutIndex, true)} disabled={words.length === 0 || isGenerating} className="btn btn-accent">
+                <RefreshCw size={16} />Generate &amp; Play
               </button>
-              <button onClick={() => puzzleFileInputRef.current?.click()} className="px-6 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl font-semibold hover:from-teal-500 hover:to-cyan-500 transition">
-                Import Puzzle
+              <button onClick={() => puzzleFileInputRef.current?.click()} className="btn">
+                <FolderOpen size={16} />Import Puzzle
               </button>
             </div>
-            <p className="text-purple-300/50 text-sm mt-4">Tip: upload a CSV word list first so we can build a grid for you.</p>
+            <p className="text-ink-faint text-xs mt-5 italic">Tip: upload a CSV word list first so we can typeset a grid for you.</p>
           </div>
         )}
       </div>

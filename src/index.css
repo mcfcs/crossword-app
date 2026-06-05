@@ -1,7 +1,273 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,900;1,9..144,400;1,9..144,600&family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,900;1,400;1,500&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   BROADSHEET — an editorial letterpress design system
+   Newsprint paper · warm ink · vermilion spot colour
+   ============================================================ */
+
+:root {
+  --paper-rgb: 239 231 214;          /* warm newsprint page          */
+  --paper-raised-rgb: 248 242 230;   /* a fresh sheet laid on top     */
+  --paper-sunken-rgb: 227 217 196;   /* inset / chip wells            */
+  --ink-rgb: 33 28 21;               /* warm near-black printing ink  */
+  --ink-soft-rgb: 84 75 61;          /* secondary text                */
+  --ink-faint-rgb: 139 128 105;      /* captions, eyebrows            */
+  --accent-rgb: 190 58 43;           /* editorial vermilion           */
+  --accent-deep-rgb: 142 42 32;      /* pressed / hover accent        */
+  --gold-rgb: 168 118 30;            /* ochre — accolades, hard tags  */
+  --grass-rgb: 60 107 70;            /* "correct" ink green           */
+  --inkblue-rgb: 44 74 110;          /* "revealed" / down ink blue    */
+
+  --paper: rgb(var(--paper-rgb));
+  --paper-raised: rgb(var(--paper-raised-rgb));
+  --paper-sunken: rgb(var(--paper-sunken-rgb));
+  --ink: rgb(var(--ink-rgb));
+  --ink-soft: rgb(var(--ink-soft-rgb));
+  --ink-faint: rgb(var(--ink-faint-rgb));
+  --accent: rgb(var(--accent-rgb));
+  --accent-deep: rgb(var(--accent-deep-rgb));
+  --gold: rgb(var(--gold-rgb));
+  --grass: rgb(var(--grass-rgb));
+  --inkblue: rgb(var(--inkblue-rgb));
+}
+
+@layer base {
+  html { scroll-behavior: smooth; }
+
+  body {
+    background-color: var(--paper);
+    color: var(--ink);
+    font-family: "Schibsted Grotesk", system-ui, sans-serif;
+    font-feature-settings: 'ss01', 'cv01';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* warm paper glow + vignette, fixed behind everything */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      radial-gradient(120% 90% at 50% -10%, rgba(255, 250, 238, 0.6), transparent 60%),
+      radial-gradient(150% 130% at 50% 120%, rgba(33, 28, 21, 0.12), transparent 55%);
+  }
+
+  /* faint newsprint grain, fixed above content (below modals) */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 60;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+    mix-blend-mode: multiply;
+    opacity: 0.05;
+  }
+
+  h1, h2, h3, h4 { font-family: 'Fraunces', Georgia, serif; }
+
+  ::selection { background: rgb(var(--accent-rgb) / 0.24); }
+
+  /* editorial scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: rgb(var(--ink-rgb) / 0.04); }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--ink-rgb) / 0.28);
+    border: 2px solid var(--paper-raised);
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink-rgb) / 0.45); }
+}
+
+@layer components {
+  /* ---- small tracked label ---- */
+  .eyebrow {
+    font-family: "Schibsted Grotesk", system-ui, sans-serif;
+    text-transform: uppercase;
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    color: var(--ink-faint);
+  }
+
+  /* ---- panels / sheets ---- */
+  .panel {
+    position: relative;
+    background: var(--paper-raised);
+    border: 1.5px solid rgb(var(--ink-rgb) / 0.16);
+    border-radius: 3px;
+    box-shadow: 0 18px 40px -30px rgba(33, 28, 21, 0.6);
+  }
+  .panel-pad { padding: 1.5rem; }
+
+  /* the classic newspaper double rule */
+  .rule-double {
+    border: none;
+    height: 5px;
+    background:
+      linear-gradient(var(--ink), var(--ink)) top/100% 2px no-repeat,
+      linear-gradient(var(--ink), var(--ink)) bottom/100% 1px no-repeat;
+  }
+  .rule-hair { height: 1px; background: rgb(var(--ink-rgb) / 0.18); border: none; }
+
+  /* ---- letterpress buttons ---- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-family: "Schibsted Grotesk", system-ui, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 0.76rem;
+    line-height: 1;
+    padding: 0.62rem 1.05rem;
+    color: var(--ink);
+    background: var(--paper-raised);
+    border: 1.5px solid var(--ink);
+    border-radius: 2px;
+    box-shadow: 3px 3px 0 0 var(--ink);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.16s ease, color 0.16s ease;
+    cursor: pointer;
+  }
+  .btn:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 0 var(--ink); }
+  .btn:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: 0 0 0 0 var(--ink); }
+  .btn:disabled { opacity: 0.38; cursor: not-allowed; }
+
+  .btn-accent { background: var(--accent); color: var(--paper-raised); border-color: var(--ink); }
+  .btn-ink { background: var(--ink); color: var(--paper-raised); }
+  .btn-gold { background: var(--gold); color: var(--paper-raised); }
+  .btn-ghost {
+    background: transparent;
+    border-color: rgb(var(--ink-rgb) / 0.28);
+    box-shadow: 2px 2px 0 0 rgb(var(--ink-rgb) / 0.22);
+  }
+  .btn-ghost:hover:not(:disabled) { background: rgb(var(--ink-rgb) / 0.05); box-shadow: 3px 3px 0 0 rgb(var(--ink-rgb) / 0.22); }
+
+  .btn-sm { font-size: 0.66rem; padding: 0.42rem 0.72rem; box-shadow: 2px 2px 0 0 var(--ink); gap: 0.35rem; }
+  .btn-sm:hover:not(:disabled) { box-shadow: 3px 3px 0 0 var(--ink); }
+
+  /* ---- form fields ---- */
+  .field {
+    width: 100%;
+    background: var(--paper-sunken);
+    border: 1.5px solid rgb(var(--ink-rgb) / 0.22);
+    border-radius: 2px;
+    padding: 0.55rem 0.8rem;
+    color: var(--ink);
+    font-family: "Schibsted Grotesk", system-ui, sans-serif;
+    font-size: 0.9rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .field::placeholder { color: rgb(var(--ink-faint-rgb) / 0.85); }
+  .field:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  /* ---- mono chip / tag ---- */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-family: "DM Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+    padding: 0.18rem 0.5rem;
+    border: 1px solid rgb(var(--ink-rgb) / 0.2);
+    border-radius: 2px;
+    background: rgb(var(--ink-rgb) / 0.04);
+    color: var(--ink-soft);
+  }
+
+  /* ---- tabs (the masthead nav) ---- */
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: "Schibsted Grotesk", system-ui, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.74rem;
+    padding: 0.6rem 1.1rem;
+    color: var(--ink-soft);
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s ease, border-color 0.15s ease;
+    cursor: pointer;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab-active { color: var(--ink); border-bottom-color: var(--accent); }
+
+  /* drop-cap flourish for the standfirst */
+  .dropcap::first-letter {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 900;
+    font-size: 3.1em;
+    line-height: 0.72;
+    float: left;
+    margin: 0.06em 0.1em 0 0;
+    color: var(--accent);
+  }
+
+  /* ---- the crossword grid itself ---- */
+  .xw-grid {
+    display: inline-block;
+    background: var(--ink);
+    border: 2px solid var(--ink);
+    box-shadow: 5px 5px 0 0 rgb(var(--ink-rgb) / 0.16);
+  }
+  .xw-cell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Schibsted Grotesk", system-ui, sans-serif;
+    font-weight: 700;
+    color: var(--ink);
+    background: #fdfaf0;
+    box-shadow: inset 0 0 0 0.5px rgb(var(--ink-rgb) / 0.28);
+    transition: background-color 0.12s ease, color 0.12s ease;
+  }
+  .xw-cell--block { background: var(--ink); box-shadow: none; cursor: default; }
+  .xw-num {
+    position: absolute;
+    top: 1px;
+    left: 2px;
+    font-family: "DM Mono", ui-monospace, monospace;
+    font-size: 0.52rem;
+    line-height: 1;
+    font-weight: 400;
+    color: rgb(var(--ink-rgb) / 0.62);
+  }
+  .xw-letter { animation: stamp-in 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+}
+
+/* ---- Tagalog "Edition" — a warmer, redder press run ---- */
 .tagalog-theme {
-  filter: hue-rotate(-15deg) saturate(1.1);
+  --paper-rgb: 240 226 209;
+  --paper-raised-rgb: 249 238 224;
+  --paper-sunken-rgb: 228 209 187;
+  --accent-rgb: 178 42 33;
+  --accent-deep-rgb: 132 30 24;
+  --gold-rgb: 156 102 24;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
