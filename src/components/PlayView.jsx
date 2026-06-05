@@ -128,14 +128,14 @@ const PlayView = ({
                     const fill = cell === '#'
                       ? 'xw-cell--block'
                       : isSelected
-                        ? 'bg-accent text-paper-raised'
+                        ? 'bg-highlight ring-2 ring-inset ring-accent'
                         : isInWord
-                          ? 'bg-accent/15'
+                          ? 'bg-highlight/40'
                           : missingClue && cell
                             ? 'bg-gold/20'
                             : '';
                     const letterColor = isSelected
-                      ? 'text-paper-raised'
+                      ? 'text-ink'
                       : isRevealed ? 'text-inkblue' : isWrong ? 'text-accent' : isCorrect ? 'text-grass' : 'text-ink';
 
                     return (
@@ -145,7 +145,7 @@ const PlayView = ({
                         className={`xw-cell w-10 h-10 md:w-12 md:h-12 text-lg ${cell === '#' ? '' : 'cursor-pointer'} ${fill}`}
                       >
                         {cell !== '#' && clueNumber && (
-                          <span className={`xw-num ${isSelected ? 'text-paper-raised/80' : ''}`}>{clueNumber}</span>
+                          <span className="xw-num">{clueNumber}</span>
                         )}
                         {cell !== '#' && cell && (
                           <span className={`xw-letter ${letterColor}`}>{cell}</span>

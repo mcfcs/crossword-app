@@ -1602,7 +1602,7 @@ const CrosswordGenerator = () => {
           </div>
           <div className="rule-hair my-2.5" />
           <h1 className="text-center font-display font-black leading-[0.86] tracking-[-0.02em] text-ink text-[2.85rem] sm:text-6xl md:text-7xl">
-            Crossword <span className="italic text-accent">Studio</span>
+            Kros<span className="italic text-accent">alita</span>
           </h1>
           <div className="rule-double mt-3.5" />
           <p className="mt-3 text-center font-display italic text-ink-soft text-base md:text-lg">

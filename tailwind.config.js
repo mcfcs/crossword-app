@@ -24,6 +24,7 @@ export default {
         gold: 'rgb(var(--gold-rgb) / <alpha-value>)',
         grass: 'rgb(var(--grass-rgb) / <alpha-value>)',
         inkblue: 'rgb(var(--inkblue-rgb) / <alpha-value>)',
+        highlight: 'rgb(var(--highlight-rgb) / <alpha-value>)',
       },
       fontFamily: {
         display: ['Fraunces', 'Georgia', 'serif'],

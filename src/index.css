@@ -21,6 +21,7 @@
   --gold-rgb: 168 118 30;            /* ochre — accolades, hard tags  */
   --grass-rgb: 60 107 70;            /* "correct" ink green           */
   --inkblue-rgb: 44 74 110;          /* "revealed" / down ink blue    */
+  --highlight-rgb: 246 212 92;       /* highlighter marigold — selection */
 
   --paper: rgb(var(--paper-rgb));
   --paper-raised: rgb(var(--paper-raised-rgb));

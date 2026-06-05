@@ -136,9 +136,9 @@ const ManualEditor = ({
                 : inFailedWord
                   ? 'bg-inkblue/20'
                   : isSelected
-                    ? 'bg-accent text-paper-raised'
+                    ? 'bg-highlight ring-2 ring-inset ring-accent'
                     : isInWord
-                      ? 'bg-accent/15'
+                      ? 'bg-highlight/40'
                       : shouldShowRequiredMissing && cell
                         ? 'bg-gold/25'
                         : inHighlightedWord
@@ -146,7 +146,7 @@ const ManualEditor = ({
                           : missingClue && cell
                             ? 'bg-gold/20'
                             : '';
-              return <div key={c} onClick={() => handleCellClick(r, c)} className={`xw-cell w-9 h-9 md:w-10 md:h-10 text-sm md:text-base ${cell === '#' ? '' : 'cursor-pointer'} ${cellClass}`}>{cell !== '#' && clueNumber && <span className={`xw-num ${isSelected ? 'text-paper-raised/80' : ''}`}>{clueNumber}</span>}{cell !== '#' && cell && <span className={`xw-letter ${isSelected ? 'text-paper-raised' : 'text-ink'}`}>{cell}</span>}</div>;
+              return <div key={c} onClick={() => handleCellClick(r, c)} className={`xw-cell w-9 h-9 md:w-10 md:h-10 text-sm md:text-base ${cell === '#' ? '' : 'cursor-pointer'} ${cellClass}`}>{cell !== '#' && clueNumber && <span className="xw-num">{clueNumber}</span>}{cell !== '#' && cell && <span className="xw-letter text-ink">{cell}</span>}</div>;
             })}</div>)}
           </div></div>
         </div>

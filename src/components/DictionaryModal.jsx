@@ -91,36 +91,36 @@ const DictionaryModal = ({
                 const isEditing = editingWordIndex === originalIndex;
 
                 return (
-                  <div key={originalIndex} className="flex items-center gap-3 px-3 py-2 rounded-sm hover:bg-ink/[0.04] transition border-b border-ink/8 last:border-0">
+                  <div key={originalIndex} className="flex items-start gap-3 px-3 py-2 rounded-sm hover:bg-ink/[0.04] transition border-b border-ink/8 last:border-0">
                     {isEditing ? (
                       <>
                         <input
                           type="text"
                           value={editWord}
                           onChange={(e) => setEditWord(e.target.value.toUpperCase())}
-                          className="field w-32 font-mono text-accent py-1"
+                          className="field w-28 sm:w-32 shrink-0 font-mono text-accent py-1"
                         />
                         <input
                           type="text"
                           value={editClue}
                           onChange={(e) => setEditClue(e.target.value)}
-                          className="field flex-1 py-1"
+                          className="field flex-1 min-w-0 py-1"
                         />
-                        <button onClick={saveEditWord} className="p-2 text-grass hover:bg-grass/10 rounded-sm transition">
+                        <button onClick={saveEditWord} className="shrink-0 p-2 text-grass hover:bg-grass/10 rounded-sm transition">
                           <Check size={17} />
                         </button>
-                        <button onClick={() => setEditingWordIndex(null)} className="p-2 text-accent hover:bg-accent/10 rounded-sm transition">
+                        <button onClick={() => setEditingWordIndex(null)} className="shrink-0 p-2 text-accent hover:bg-accent/10 rounded-sm transition">
                           <X size={17} />
                         </button>
                       </>
                     ) : (
                       <>
-                        <span className="w-32 font-mono font-semibold text-accent shrink-0 tracking-wide">{item.word}</span>
-                        <span className="flex-1 text-ink-soft text-sm">{item.clue}</span>
-                        <button onClick={() => startEditWord(originalIndex)} className="p-2 text-ink-faint hover:text-ink hover:bg-ink/[0.06] rounded-sm transition">
+                        <span className="w-24 sm:w-32 shrink-0 font-mono font-semibold text-accent tracking-wide break-words">{item.word}</span>
+                        <span className="flex-1 min-w-0 text-ink-soft text-sm break-words">{item.clue}</span>
+                        <button onClick={() => startEditWord(originalIndex)} className="shrink-0 p-2 text-ink-faint hover:text-ink hover:bg-ink/[0.06] rounded-sm transition">
                           <Edit3 size={15} />
                         </button>
-                        <button onClick={() => deleteWordFromDictionary(originalIndex)} className="p-2 text-ink-faint hover:text-accent hover:bg-accent/10 rounded-sm transition">
+                        <button onClick={() => deleteWordFromDictionary(originalIndex)} className="shrink-0 p-2 text-ink-faint hover:text-accent hover:bg-accent/10 rounded-sm transition">
                           <Trash2 size={15} />
                         </button>
                       </>

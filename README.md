@@ -1,6 +1,6 @@
-# Crossword Studio
+# Krosalita
 
-React + Vite app for generating, editing, and playing crossword puzzles from CSV word lists.
+Krosalita is a React + Vite app for generating, editing, and playing crossword puzzles from CSV word lists.
 
 ## Features
 
