@@ -74,110 +74,107 @@ const RequiredWordsModal = ({
     onConfirm(words, mode, difficulty);
   };
 
+  const pill = (active) =>
+    `px-3 py-1.5 rounded-sm border text-xs font-bold uppercase tracking-wide transition ${active ? 'border-ink bg-ink text-paper-raised' : 'border-ink/25 text-ink-soft hover:bg-ink/5'}`;
+
   return (
-    <div className="fixed inset-0 z-[1100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 rounded-2xl border border-purple-500/30 w-full max-w-lg shadow-2xl">
-        <div className="flex items-center justify-between p-5 border-b border-purple-500/30">
+    <div className="fixed inset-0 z-[1100] bg-ink/45 backdrop-blur-[2px] flex items-center justify-center p-4">
+      <div className="panel w-full max-w-lg max-h-[92vh] flex flex-col animate-rise-in">
+        <div className="flex items-start justify-between panel-pad pb-4 border-b border-ink/12">
           <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-purple-300/70">Generate</div>
-            <div className="text-2xl font-bold text-amber-300 mt-1">Specific Words</div>
+            <div className="eyebrow">Generate</div>
+            <div className="font-display text-3xl font-semibold text-ink leading-tight mt-0.5">Specific Words</div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 transition">
-            <X size={22} className="text-purple-200" />
+          <button onClick={onClose} className="p-2 -mr-1 text-ink-faint hover:text-ink transition">
+            <X size={22} />
           </button>
         </div>
-        <div className="p-5 space-y-4">
+
+        <div className="panel-pad space-y-4 overflow-y-auto">
           {stats && (
-            <div className="text-sm text-purple-200 bg-white/5 rounded-xl p-3 border border-purple-500/20">
-              <div className="font-semibold text-amber-200">Current Layout: {stats.rows}x{stats.cols}</div>
-              <div className="text-purple-200/80 mt-1">Max words: {stats.slots}</div>
-              <div className="text-purple-200/80 mt-1">
+            <div className="text-sm bg-paper-sunken rounded-sm p-3.5 border border-ink/12">
+              <div className="font-mono text-ink"><span className="text-ink-faint">Layout</span> {stats.rows}×{stats.cols} · <span className="text-ink-faint">Max</span> {stats.slots} words</div>
+              <div className="text-ink-soft mt-1 text-xs font-mono">
                 Lengths: {Object.keys(stats.lengthCounts || {}).sort((a,b)=>a-b).map(len => `${len}(${stats.lengthCounts[len]})`).join(', ')}
               </div>
-              <div className="mt-2">
-                <div className="font-semibold text-amber-200">Difficulty</div>
-                
-                <div className="flex flex-wrap gap-2">
+              <div className="mt-3">
+                <div className="eyebrow mb-1.5">Difficulty</div>
+                <div className="flex flex-wrap gap-1.5">
                   {['random','easy','fair','moderate','hard','difficult','nyt-monday'].map(opt => (
-                    <button
-                      key={opt}
-                      onClick={() => setDifficulty(opt)}
-                      className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition ${
-                        difficulty === opt ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-200 hover:bg-white/5'
-                      }`}
-                    >
-                      {opt.toUpperCase()}
+                    <button key={opt} onClick={() => setDifficulty(opt)} className={pill(difficulty === opt)}>
+                      {opt}
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="flex gap-2 mt-2 text-xs">
-                <button onClick={() => handleModeViewChange('simple')} className={`px-3 py-1 rounded-lg border ${modeView === 'simple' ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-200'}`}>Simple</button>
-                <button onClick={() => handleModeViewChange('byLength')} className={`px-3 py-1 rounded-lg border ${modeView === 'byLength' ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-200'}`}>By Length</button>
+              <div className="flex gap-1.5 mt-3">
+                <button onClick={() => handleModeViewChange('simple')} className={pill(modeView === 'simple')}>Simple</button>
+                <button onClick={() => handleModeViewChange('byLength')} className={pill(modeView === 'byLength')}>By Length</button>
               </div>
             </div>
           )}
 
           {modeView === 'simple' && (
             <div>
-              <label className="block text-sm text-purple-200 mb-2">Words (comma separated)</label>
+              <label className="eyebrow block mb-2">Words (comma separated)</label>
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="E.g. APPLE, ORANGE, BANANA"
+                placeholder="e.g. APPLE, ORANGE, BANANA"
                 rows={3}
-                className="w-full bg-white/5 border border-purple-500/30 rounded-xl px-3 py-2 text-white placeholder-purple-300/50 focus:outline-none focus:border-amber-500/50"
+                className="field font-mono"
               />
             </div>
           )}
 
           {modeView === 'byLength' && (
-            <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
               {Object.keys(stats?.lengthCounts || {}).sort((a,b)=>a-b).map(len => (
-                <div key={len} className="bg-white/5 border border-purple-500/20 rounded-lg p-3">
-                  <div className="flex justify-between items-center text-sm text-purple-200 mb-2">
-                    <span>Length {len}</span>
-                    <span className="text-purple-300/70">Max: {stats.lengthCounts[len]}</span>
+                <div key={len} className="bg-paper-sunken border border-ink/12 rounded-sm p-3">
+                  <div className="flex justify-between items-center text-sm mb-2">
+                    <span className="eyebrow">Length {len}</span>
+                    <span className="text-ink-faint text-xs font-mono">Max {stats.lengthCounts[len]}</span>
                   </div>
                   <textarea
                     value={lengthInputs[len] || ''}
                     onChange={(e) => setLengthInputs(prev => ({ ...prev, [len]: e.target.value }))}
                     placeholder={`Words of length ${len}, comma separated`}
                     rows={2}
-                    className="w-full bg-white/5 border border-purple-500/30 rounded-xl px-3 py-2 text-white placeholder-purple-300/50 focus:outline-none focus:border-amber-500/50"
+                    className="field font-mono"
                   />
                 </div>
               ))}
               {(!stats || Object.keys(stats.lengthCounts || {}).length === 0) && (
-                <div className="text-purple-300/70 text-sm">No length data available for this layout.</div>
+                <div className="text-ink-faint text-sm italic">No length data available for this layout.</div>
               )}
             </div>
           )}
 
-          {error && <div className="text-rose-300 text-sm">{error}</div>}
+          {error && <div className="border-l-2 border-accent bg-accent/8 px-3 py-2 text-accent-deep text-sm">{error}</div>}
 
           <div>
-            <label className="block text-sm text-purple-200 mb-2">Placement mode</label>
-            <div className="grid grid-cols-1 gap-3">
+            <label className="eyebrow block mb-2">Placement Mode</label>
+            <div className="grid grid-cols-1 gap-2.5">
               <button
                 onClick={() => setMode('anchor')}
-                className={`flex items-center gap-2 px-3 py-3 rounded-xl border transition ${mode === 'anchor' ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-100 hover:bg-white/5'}`}
+                className={`flex items-center gap-2.5 px-3.5 py-3 rounded-sm border text-left text-sm transition ${mode === 'anchor' ? 'border-ink bg-ink text-paper-raised' : 'border-ink/25 text-ink-soft hover:bg-ink/5'}`}
               >
-                <Zap size={18} /> Place first (anchor the board on these words)
+                <Zap size={17} /> Place first — anchor the board on these words
               </button>
               <button
                 onClick={() => setMode('opportunistic')}
-                className={`flex items-center gap-2 px-3 py-3 rounded-xl border transition ${mode === 'opportunistic' ? 'border-amber-400 bg-amber-500/10 text-amber-200' : 'border-purple-500/30 text-purple-100 hover:bg-white/5'}`}
+                className={`flex items-center gap-2.5 px-3.5 py-3 rounded-sm border text-left text-sm transition ${mode === 'opportunistic' ? 'border-ink bg-ink text-paper-raised' : 'border-ink/25 text-ink-soft hover:bg-ink/5'}`}
               >
-                <Shuffle size={18} /> Fill flexibly (fit these words anywhere)
+                <Shuffle size={17} /> Fill flexibly — fit these words anywhere
               </button>
             </div>
           </div>
         </div>
-        <div className="p-5 border-t border-purple-500/30 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg bg-white/10 text-purple-200 hover:bg-white/20 transition">Cancel</button>
-          <button onClick={handleConfirm} className="px-5 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-yellow-500 text-black font-semibold hover:from-amber-400 hover:to-yellow-400 transition flex items-center gap-2">
-            <Check size={18} /> Confirm
+
+        <div className="panel-pad pt-4 border-t border-ink/12 flex justify-end gap-3">
+          <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+          <button onClick={handleConfirm} className="btn btn-accent">
+            <Check size={16} /> Confirm
           </button>
         </div>
       </div>

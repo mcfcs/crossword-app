@@ -39,7 +39,49 @@ export const parseCSV = (text) => {
   return parsed.sort((a, b) => b.word.length - a.word.length);
 };
 
+// findSlots is pure in `layout` and is called from many hot paths (render,
+// click handlers, the solver). Memoize on the layout array reference so a given
+// layout's slots are computed once. Layout grids are treated as immutable
+// (replaced, never mutated in place), and the returned array is only read, so
+// sharing the cached instance is safe.
+const slotsCache = new WeakMap();
+
 export const findSlots = (layout) => {
+  if (layout && typeof layout === 'object') {
+    const cached = slotsCache.get(layout);
+    if (cached) return cached;
+    const computed = computeSlots(layout);
+    slotsCache.set(layout, computed);
+    return computed;
+  }
+  return computeSlots(layout);
+};
+
+// Build a "row,col" -> clue number lookup for a clue set, cached per clue-set
+// object so per-cell number lookups during render are O(1) instead of scanning
+// both clue arrays for every cell.
+const cellNumberCache = new WeakMap();
+
+export const getCellNumber = (clueSet, r, c) => {
+  if (!clueSet) return null;
+  let map = cellNumberCache.get(clueSet);
+  if (!map) {
+    map = new Map();
+    for (const cl of clueSet.across || []) {
+      const k = `${cl.row},${cl.col}`;
+      if (!map.has(k)) map.set(k, cl.number);
+    }
+    for (const cl of clueSet.down || []) {
+      const k = `${cl.row},${cl.col}`;
+      if (!map.has(k)) map.set(k, cl.number);
+    }
+    cellNumberCache.set(clueSet, map);
+  }
+  const n = map.get(`${r},${c}`);
+  return n === undefined ? null : n;
+};
+
+const computeSlots = (layout) => {
   const slots = [];
   const rows = layout.length;
   const cols = layout[0].length;

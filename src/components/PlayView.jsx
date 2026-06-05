@@ -16,7 +16,6 @@ const PlayView = ({
   revealWord,
   revealAll,
   handlePlayCellClick,
-  isInPlayCurrentWord,
   getNumberForCell,
   getPlayCurrentSlot,
   setPlaySelectedCell,
@@ -24,19 +23,17 @@ const PlayView = ({
   formatTime,
   difficultyInfo
 }) => {
-  if (!playGrid) return null;
-
   const cluesContainerRef = useRef(null);
   const clueRefs = useRef({});
 
   const difficultyColorClass = (label = '') => {
     const d = label.toUpperCase();
-    if (d === 'EASY') return 'text-sky-200';
-    if (d === 'FAIR') return 'text-emerald-200';
-    if (d === 'MODERATE') return 'text-amber-200';
-    if (d === 'HARD') return 'text-orange-200';
-    if (d === 'DIFFICULT') return 'text-rose-200';
-    return 'text-purple-200';
+    if (d === 'EASY') return 'text-inkblue';
+    if (d === 'FAIR') return 'text-grass';
+    if (d === 'MODERATE') return 'text-gold';
+    if (d === 'HARD') return 'text-accent';
+    if (d === 'DIFFICULT') return 'text-accent-deep';
+    return 'text-ink-soft';
   };
 
   useEffect(() => {
@@ -55,59 +52,61 @@ const PlayView = ({
     }
   }, [playSelectedCell, playDirection, playClues, getPlayCurrentSlot]);
 
+  if (!playGrid) return null;
+
+  // Compute the active slot once per render (getPlayCurrentSlot rebuilds the
+  // layout + re-derives slots, so calling it per cell was O(cells × findSlots)).
+  const activeSlot = getPlayCurrentSlot();
+  const inActiveWord = (r, c) => {
+    if (!activeSlot) return false;
+    if (activeSlot.direction === 'across') return r === activeSlot.row && c >= activeSlot.col && c < activeSlot.col + activeSlot.length;
+    return c === activeSlot.col && r >= activeSlot.row && r < activeSlot.row + activeSlot.length;
+  };
+
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      <div className="xl:col-span-2 space-y-4">
-        <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-purple-500/20 p-4">
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-rise-in">
+      <div className="xl:col-span-2 space-y-5">
+        {/* ---- solve toolbar ---- */}
+        <div className="panel p-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="text-2xl font-mono font-bold text-amber-300">
-                {formatTime(playTimer)}
+            <div className="flex items-center gap-5">
+              <div className="flex items-baseline gap-2">
+                <span className="eyebrow">Time</span>
+                <span className="font-mono text-2xl font-medium text-ink tabular-nums">{formatTime(playTimer)}</span>
               </div>
               {playComplete && (
-                <div className="flex items-center gap-2 text-emerald-400">
-                  <Trophy size={24} />
-                  <span className="font-bold">Complete!</span>
-                </div>
-              )}
-            </div>
-            <div className="flex gap-3 items-center flex-wrap">
-              {difficultyInfo?.label && (
-                <span className="px-4 py-2 rounded-full text-base font-semibold bg-white/5 border border-purple-500/30 text-purple-100">
-                  Difficulty: <span className={`${difficultyColorClass(difficultyInfo.label)} font-bold`}>{difficultyInfo.label}</span>{difficultyInfo.score !== null ? ` (${Math.round(difficultyInfo.score)})` : ''}
+                <span className="inline-flex items-center gap-1.5 text-grass font-display font-semibold text-lg">
+                  <Trophy size={20} />Complete
                 </span>
               )}
-              <button
-                onClick={() => setPlayAutoCheck(prev => !prev)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition ${
-                  playAutoCheck
-                    ? 'bg-emerald-600 text-white border-emerald-500 hover:bg-emerald-500'
-                    : 'bg-white/10 text-purple-200 border-purple-500/30 hover:bg-white/20'
-                }`}
-              >
-                Auto Check {playAutoCheck ? 'On' : 'Off'}
+            </div>
+            <div className="flex gap-2 items-center flex-wrap">
+              {difficultyInfo?.label && (
+                <span className="inline-flex items-center gap-2 border border-ink/20 bg-paper-sunken px-3 py-1.5 rounded-sm">
+                  <span className="eyebrow">Difficulty</span>
+                  <span className={`font-display font-semibold ${difficultyColorClass(difficultyInfo.label)}`}>{difficultyInfo.label}</span>
+                  {difficultyInfo.score !== null && <span className="font-mono text-xs text-ink-faint">({Math.round(difficultyInfo.score)})</span>}
+                </span>
+              )}
+              <button onClick={() => setPlayAutoCheck(prev => !prev)} className={`btn btn-sm ${playAutoCheck ? 'btn-ink' : 'btn-ghost'}`}>
+                Auto-check {playAutoCheck ? 'On' : 'Off'}
               </button>
-              <button onClick={revealCell} className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition text-sm font-medium">
-                Reveal Cell
-              </button>
-              <button onClick={revealWord} className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition text-sm font-medium">
-                Reveal Word
-              </button>
-              <button onClick={revealAll} className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-500 transition text-sm font-medium">
-                Reveal All
-              </button>
+              <button onClick={revealCell} className="btn btn-sm">Reveal Cell</button>
+              <button onClick={revealWord} className="btn btn-sm">Reveal Word</button>
+              <button onClick={revealAll} className="btn btn-sm btn-accent">Reveal All</button>
             </div>
           </div>
         </div>
-        
-        <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-purple-500/20 p-6">
-          <div className="overflow-x-auto">
-            <div className="inline-block">
+
+        {/* ---- the grid ---- */}
+        <div className="panel panel-pad">
+          <div className="overflow-x-auto pb-2">
+            <div className="xw-grid">
               {playGrid.map((row, r) => (
                 <div key={r} className="flex">
                   {row.map((cell, c) => {
                     const isSelected = playSelectedCell?.row === r && playSelectedCell?.col === c;
-                    const isInWord = isInPlayCurrentWord(r, c);
+                    const isInWord = inActiveWord(r, c);
                     const isRevealed = revealedCells.has(`${r},${c}`);
                     const showCorrectness = (playAutoCheck || playComplete) && !!playAnswers;
                     const isCorrect = showCorrectness && cell === playAnswers[r][c] && cell !== '';
@@ -125,27 +124,31 @@ const PlayView = ({
                       return true;
                     };
                     const missingClue = clueObj && isSlotFilled(clueObj) && !clueObj.clue;
-                    
+
+                    const fill = cell === '#'
+                      ? 'xw-cell--block'
+                      : isSelected
+                        ? 'bg-accent text-paper-raised'
+                        : isInWord
+                          ? 'bg-accent/15'
+                          : missingClue && cell
+                            ? 'bg-gold/20'
+                            : '';
+                    const letterColor = isSelected
+                      ? 'text-paper-raised'
+                      : isRevealed ? 'text-inkblue' : isWrong ? 'text-accent' : isCorrect ? 'text-grass' : 'text-ink';
+
                     return (
                       <div
                         key={c}
                         onClick={() => handlePlayCellClick(r, c)}
-                        className={`w-10 h-10 md:w-12 md:h-12 border flex items-center justify-center text-lg font-bold relative transition-all cursor-pointer
-                          ${cell === '#' ? 'bg-slate-800 border-slate-700 cursor-default' : 
-                            isSelected ? 'bg-amber-400 border-amber-500 ring-2 ring-amber-300' : 
-                            isInWord ? 'bg-amber-200/80 border-amber-300' : 
-                            missingClue && cell ? 'bg-rose-200/70 border-rose-400' :
-                            'bg-white/95 border-purple-500/30 hover:bg-purple-100'}`}
+                        className={`xw-cell w-10 h-10 md:w-12 md:h-12 text-lg ${cell === '#' ? '' : 'cursor-pointer'} ${fill}`}
                       >
                         {cell !== '#' && clueNumber && (
-                          <span className="absolute top-0.5 left-1 text-[10px] text-slate-500 font-medium">
-                            {clueNumber}
-                          </span>
+                          <span className={`xw-num ${isSelected ? 'text-paper-raised/80' : ''}`}>{clueNumber}</span>
                         )}
                         {cell !== '#' && cell && (
-                          <span className={`${isRevealed ? 'text-purple-600' : isWrong ? 'text-rose-600' : isCorrect ? 'text-emerald-600' : 'text-slate-800'}`}>
-                            {cell}
-                          </span>
+                          <span className={`xw-letter ${letterColor}`}>{cell}</span>
                         )}
                       </div>
                     );
@@ -154,52 +157,48 @@ const PlayView = ({
               ))}
             </div>
           </div>
-          <p className="text-purple-300/60 text-sm mt-4">Click a cell to select it. Type to fill in letters. Arrow keys to navigate.</p>
+          <p className="text-ink-faint text-xs mt-4">Click a cell to select · click again to flip Across/Down · type to fill · arrow keys to move.</p>
         </div>
       </div>
-      
-      <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-purple-500/20 p-6 max-h-[700px] overflow-y-auto" ref={cluesContainerRef}>
-        <h2 className="text-xl font-bold text-amber-300 mb-4">Clues</h2>
+
+      {/* ---- clue list ---- */}
+      <div className="panel panel-pad max-h-[720px] overflow-y-auto" ref={cluesContainerRef}>
+        <div className="eyebrow">Solve</div>
+        <h2 className="font-display text-2xl font-semibold text-ink mb-4">Clues</h2>
         <div className="mb-6">
-          <h3 className="font-bold text-purple-300 mb-3 flex items-center gap-2">
-            <ChevronRight size={16} />Across
+          <h3 className="eyebrow text-ink flex items-center gap-1.5 border-b border-ink/15 pb-1.5 mb-3">
+            <ChevronRight size={13} />Across
           </h3>
           {playClues.across.map(clue => {
-            const isActive = playDirection === 'across' && getPlayCurrentSlot()?.row === clue.row && getPlayCurrentSlot()?.col === clue.col;
+            const isActive = playDirection === 'across' && activeSlot?.row === clue.row && activeSlot?.col === clue.col;
             return (
               <div
                 key={`across-${clue.number}`}
                 ref={node => { if (node) clueRefs.current[`across-${clue.number}`] = node; }}
-                onClick={() => {
-                  setPlaySelectedCell({ row: clue.row, col: clue.col });
-                  setPlayDirection('across');
-                }}
-                className={`mb-2 text-sm pl-4 border-l-2 py-1 cursor-pointer transition rounded-r
-                  ${isActive ? 'border-amber-400 bg-amber-500/20 text-white' : 'border-purple-500/30 text-purple-100/80 hover:bg-white/5'}`}
+                onClick={() => { setPlaySelectedCell({ row: clue.row, col: clue.col }); setPlayDirection('across'); }}
+                className={`mb-1.5 text-sm pl-3 border-l-2 py-1 cursor-pointer transition leading-snug
+                  ${isActive ? 'border-accent bg-accent/8 text-ink' : 'border-ink/15 text-ink-soft hover:bg-ink/[0.04]'}`}
               >
-                <span className="font-semibold text-amber-300">{clue.number}.</span> {clue.clue}
+                <span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{clue.clue}
               </div>
             );
           })}
         </div>
         <div>
-          <h3 className="font-bold text-purple-300 mb-3 flex items-center gap-2">
-            <ChevronDown size={16} />Down
+          <h3 className="eyebrow text-ink flex items-center gap-1.5 border-b border-ink/15 pb-1.5 mb-3">
+            <ChevronDown size={13} />Down
           </h3>
           {playClues.down.map(clue => {
-            const isActive = playDirection === 'down' && getPlayCurrentSlot()?.row === clue.row && getPlayCurrentSlot()?.col === clue.col;
+            const isActive = playDirection === 'down' && activeSlot?.row === clue.row && activeSlot?.col === clue.col;
             return (
               <div
                 key={`down-${clue.number}`}
                 ref={node => { if (node) clueRefs.current[`down-${clue.number}`] = node; }}
-                onClick={() => {
-                  setPlaySelectedCell({ row: clue.row, col: clue.col });
-                  setPlayDirection('down');
-                }}
-                className={`mb-2 text-sm pl-4 border-l-2 py-1 cursor-pointer transition rounded-r
-                  ${isActive ? 'border-amber-400 bg-amber-500/20 text-white' : 'border-purple-500/30 text-purple-100/80 hover:bg-white/5'}`}
+                onClick={() => { setPlaySelectedCell({ row: clue.row, col: clue.col }); setPlayDirection('down'); }}
+                className={`mb-1.5 text-sm pl-3 border-l-2 py-1 cursor-pointer transition leading-snug
+                  ${isActive ? 'border-accent bg-accent/8 text-ink' : 'border-ink/15 text-ink-soft hover:bg-ink/[0.04]'}`}
               >
-                <span className="font-semibold text-amber-300">{clue.number}.</span> {clue.clue}
+                <span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{clue.clue}
               </div>
             );
           })}

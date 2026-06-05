@@ -29,106 +29,99 @@ const DictionaryModal = ({
   const filteredWords = getFilteredWords();
 
   return (
-    <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 rounded-2xl border border-purple-500/30 w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl">
-        <div className="p-6 border-b border-purple-500/30">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold text-amber-300 flex items-center gap-2">
-              <BookOpen size={24} />Dictionary
-            </h2>
-            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition">
-              <X size={24} className="text-purple-300" />
+    <div className="fixed inset-0 z-[1000] bg-ink/45 backdrop-blur-[2px] flex items-center justify-center p-4">
+      <div className="panel w-full max-w-4xl max-h-[90vh] flex flex-col animate-rise-in">
+        <div className="panel-pad pb-5 border-b border-ink/12">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <div className="eyebrow flex items-center gap-1.5"><BookOpen size={13} />Reference</div>
+              <h2 className="font-display text-3xl font-semibold text-ink leading-tight">The Lexicon</h2>
+            </div>
+            <button onClick={onClose} className="p-2 -mr-1 text-ink-faint hover:text-ink transition">
+              <X size={22} />
             </button>
           </div>
-          
-          <div className="flex gap-3 flex-wrap">
+
+          <div className="flex gap-2.5 flex-wrap">
             <input
               type="text"
               value={newWord}
               onChange={(e) => setNewWord(e.target.value.toUpperCase())}
-              placeholder="New word..."
-              className="flex-1 min-w-[120px] bg-white/10 border border-purple-500/30 rounded-lg px-4 py-2 text-white placeholder-purple-300/50 focus:outline-none focus:border-amber-500/50"
+              placeholder="New word…"
+              className="field flex-1 min-w-[120px] font-mono uppercase tracking-wide"
             />
             <input
               type="text"
               value={newClue}
               onChange={(e) => setNewClue(e.target.value)}
-              placeholder="Clue for this word..."
-              className="flex-[2] min-w-[200px] bg-white/10 border border-purple-500/30 rounded-lg px-4 py-2 text-white placeholder-purple-300/50 focus:outline-none focus:border-amber-500/50"
+              placeholder="Clue for this word…"
+              className="field flex-[2] min-w-[200px]"
             />
-            <button
-              onClick={addWordToDictionary}
-              className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-500 hover:to-teal-500 transition font-medium flex items-center gap-2"
-            >
-              <Plus size={18} />Add
+            <button onClick={addWordToDictionary} className="btn btn-accent">
+              <Plus size={16} />Add
             </button>
-            <button
-              onClick={exportDictionary}
-              className="px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-lg hover:from-amber-500 hover:to-orange-500 transition font-medium flex items-center gap-2"
-            >
-              <Download size={18} />Export CSV
+            <button onClick={exportDictionary} className="btn">
+              <Download size={16} />Export CSV
             </button>
           </div>
-          
-          <div className="mt-4 relative">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-300/50" />
+
+          <div className="mt-3 relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
             <input
               type="text"
               value={dictionarySearch}
               onChange={(e) => setDictionarySearch(e.target.value)}
-              placeholder="Search words or clues..."
-              className="w-full bg-white/10 border border-purple-500/30 rounded-lg pl-10 pr-4 py-2 text-white placeholder-purple-300/50 focus:outline-none focus:border-amber-500/50"
+              placeholder="Search words or clues…"
+              className="field pl-10"
             />
           </div>
-          
-          <div className="mt-3 text-purple-300/60 text-sm">
-            {words.length} words in dictionary
-          </div>
+
+          <div className="mt-3 eyebrow">{words.length} entries on file</div>
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-6">
+
+        <div className="flex-1 overflow-y-auto panel-pad">
           {filteredWords.length === 0 ? (
-            <div className="text-center text-purple-300/60 py-8">
-              {words.length === 0 ? 'No words in dictionary. Add some or upload a CSV!' : 'No matching words found.'}
+            <div className="text-center text-ink-faint py-10 italic">
+              {words.length === 0 ? 'No words yet — add some or upload a CSV.' : 'No matching words found.'}
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1">
               {filteredWords.slice(0, 200).map((item) => {
                 const originalIndex = words.indexOf(item);
                 const isEditing = editingWordIndex === originalIndex;
-                
+
                 return (
-                  <div key={originalIndex} className="flex items-center gap-3 p-3 bg-white/5 rounded-lg hover:bg-white/10 transition">
+                  <div key={originalIndex} className="flex items-center gap-3 px-3 py-2 rounded-sm hover:bg-ink/[0.04] transition border-b border-ink/8 last:border-0">
                     {isEditing ? (
                       <>
                         <input
                           type="text"
                           value={editWord}
                           onChange={(e) => setEditWord(e.target.value.toUpperCase())}
-                          className="w-32 bg-white/10 border border-purple-500/30 rounded px-2 py-1 text-amber-300 font-mono focus:outline-none focus:border-amber-500/50"
+                          className="field w-32 font-mono text-accent py-1"
                         />
                         <input
                           type="text"
                           value={editClue}
                           onChange={(e) => setEditClue(e.target.value)}
-                          className="flex-1 bg-white/10 border border-purple-500/30 rounded px-2 py-1 text-white focus:outline-none focus:border-amber-500/50"
+                          className="field flex-1 py-1"
                         />
-                        <button onClick={saveEditWord} className="p-2 text-emerald-400 hover:bg-emerald-500/20 rounded transition">
-                          <Check size={18} />
+                        <button onClick={saveEditWord} className="p-2 text-grass hover:bg-grass/10 rounded-sm transition">
+                          <Check size={17} />
                         </button>
-                        <button onClick={() => setEditingWordIndex(null)} className="p-2 text-rose-400 hover:bg-rose-500/20 rounded transition">
-                          <X size={18} />
+                        <button onClick={() => setEditingWordIndex(null)} className="p-2 text-accent hover:bg-accent/10 rounded-sm transition">
+                          <X size={17} />
                         </button>
                       </>
                     ) : (
                       <>
-                        <span className="w-32 font-mono text-amber-300 font-bold">{item.word}</span>
-                        <span className="flex-1 text-purple-100/80 text-sm">{item.clue}</span>
-                        <button onClick={() => startEditWord(originalIndex)} className="p-2 text-purple-300 hover:bg-purple-500/20 rounded transition">
-                          <Edit3 size={16} />
+                        <span className="w-32 font-mono font-semibold text-accent shrink-0 tracking-wide">{item.word}</span>
+                        <span className="flex-1 text-ink-soft text-sm">{item.clue}</span>
+                        <button onClick={() => startEditWord(originalIndex)} className="p-2 text-ink-faint hover:text-ink hover:bg-ink/[0.06] rounded-sm transition">
+                          <Edit3 size={15} />
                         </button>
-                        <button onClick={() => deleteWordFromDictionary(originalIndex)} className="p-2 text-rose-400 hover:bg-rose-500/20 rounded transition">
-                          <Trash2 size={16} />
+                        <button onClick={() => deleteWordFromDictionary(originalIndex)} className="p-2 text-ink-faint hover:text-accent hover:bg-accent/10 rounded-sm transition">
+                          <Trash2 size={15} />
                         </button>
                       </>
                     )}
@@ -136,7 +129,7 @@ const DictionaryModal = ({
                 );
               })}
               {filteredWords.length > 200 && (
-                <div className="text-center text-purple-300/60 py-4">
+                <div className="text-center text-ink-faint py-4 text-sm italic">
                   Showing first 200 of {getFilteredWords().length} results
                 </div>
               )}
