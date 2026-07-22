@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { ChevronDown, ChevronRight, Trophy } from './Icons';
+import MobileSolveDock from './MobileSolveDock';
 
 const PlayView = ({
   playGrid,
@@ -21,7 +22,9 @@ const PlayView = ({
   setPlaySelectedCell,
   setPlayDirection,
   formatTime,
-  difficultyInfo
+  difficultyInfo,
+  onVirtualKey = () => {},
+  goToAdjacentClue = () => {}
 }) => {
   const cluesContainerRef = useRef(null);
   const clueRefs = useRef({});
@@ -62,9 +65,12 @@ const PlayView = ({
     if (activeSlot.direction === 'across') return r === activeSlot.row && c >= activeSlot.col && c < activeSlot.col + activeSlot.length;
     return c === activeSlot.col && r >= activeSlot.row && r < activeSlot.row + activeSlot.length;
   };
+  const activeClue = activeSlot
+    ? (activeSlot.direction === 'across' ? playClues.across : playClues.down).find(c => c.row === activeSlot.row && c.col === activeSlot.col)
+    : null;
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-rise-in">
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-rise-in pb-72 lg:pb-0">
       <div className="xl:col-span-2 space-y-5">
         {/* ---- solve toolbar ---- */}
         <div className="panel p-4">
@@ -101,7 +107,7 @@ const PlayView = ({
         {/* ---- the grid ---- */}
         <div className="panel panel-pad">
           <div className="overflow-x-auto pb-2">
-            <div className="xw-grid">
+            <div className="xw-grid xw-grid--play" style={{ '--cols': playGrid[0]?.length || 15 }}>
               {playGrid.map((row, r) => (
                 <div key={r} className="flex">
                   {row.map((cell, c) => {
@@ -128,21 +134,21 @@ const PlayView = ({
                     const fill = cell === '#'
                       ? 'xw-cell--block'
                       : isSelected
-                        ? 'bg-highlight ring-2 ring-inset ring-accent'
+                        ? 'bg-select ring-1 ring-inset ring-ink/30'
                         : isInWord
-                          ? 'bg-highlight/40'
+                          ? 'bg-word'
                           : missingClue && cell
-                            ? 'bg-gold/20'
+                            ? 'bg-gold/15'
                             : '';
-                    const letterColor = isSelected
-                      ? 'text-ink'
-                      : isRevealed ? 'text-inkblue' : isWrong ? 'text-accent' : isCorrect ? 'text-grass' : 'text-ink';
+                    const letterColor = isRevealed
+                      ? 'text-revealed'
+                      : isWrong ? 'text-wrong' : isCorrect ? 'text-correct' : 'text-ink';
 
                     return (
                       <div
                         key={c}
                         onClick={() => handlePlayCellClick(r, c)}
-                        className={`xw-cell w-10 h-10 md:w-12 md:h-12 text-lg ${cell === '#' ? '' : 'cursor-pointer'} ${fill}`}
+                        className={`xw-cell ${cell === '#' ? '' : 'cursor-pointer'} ${fill}`}
                       >
                         {cell !== '#' && clueNumber && (
                           <span className="xw-num">{clueNumber}</span>
@@ -204,6 +210,17 @@ const PlayView = ({
           })}
         </div>
       </div>
+
+      <MobileSolveDock
+        clueNumber={activeClue?.number}
+        clueDirection={playDirection}
+        clueText={activeClue?.clue}
+        onPrev={() => goToAdjacentClue(-1)}
+        onNext={() => goToAdjacentClue(1)}
+        onToggleDir={() => setPlayDirection(playDirection === 'across' ? 'down' : 'across')}
+        onKey={(ch) => onVirtualKey(ch)}
+        onBackspace={() => onVirtualKey('Backspace')}
+      />
     </div>
   );
 };

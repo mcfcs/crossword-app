@@ -7,15 +7,46 @@ Krosalita is a React + Vite app for generating, editing, and playing crossword p
 - **Generate mode**: build a crossword automatically from a word/clue dictionary
 - **Create mode**: manually edit a grid, clues, and then auto-fill remaining slots
 - **Play mode**: solve generated/imported puzzles with timer, auto-check, and reveal tools
+- **Mobile-first solving**: NYT/LA Times-style clean UI, a grid that fits any screen width,
+  an on-screen keyboard, and a sticky current-clue bar (‹ ›) — great on a phone
+- **Installable app (PWA)**: "Add to Home Screen" for a standalone, offline-capable app
+  (service worker + web manifest + icons). Tap **Install App** in the header when offered
+- **Auto-save & resume**: an in-progress solve is saved locally and restored on reload
+- **Today's Puzzle + streaks**: a deterministic daily puzzle with a solve-streak counter
+- **AI clue assist (local Ollama)**: draft clues for a filled word using a model you host
+  locally — nothing leaves your machine (see below)
 - **Layout tools**: choose built-in layouts or create/edit custom symmetric layouts
 - **Required words**: force specific words into puzzle generation (anchor or opportunistic)
 - **Difficulty filters**: generate by target difficulty band (`easy` → `difficult`)
 - **Dictionary manager**: add/edit/delete entries and export dictionary CSV
-- **Import/export**:
-  - export puzzle JSON
-  - import puzzle JSON (generate/create/play workflows)
-  - download puzzle as an image with clue lists
+- **Import / export / share**:
+  - export & import puzzle JSON (generate/create/play workflows)
+  - download puzzle as an image with clue lists (and a clean print stylesheet)
+  - **Share** a blank puzzle image via the Web Share API (falls back to a PNG download)
 - **Tagalog mode**: switches to Tagalog crossword dataset (if available in `public/`)
+
+## Install as an app
+
+Krosalita is a PWA. Serve the production build over HTTPS (or `http://localhost`) and:
+
+- **Android / Chrome / Edge**: use the **Install App** button in the header, or the browser's
+  "Install app" menu item.
+- **iOS / Safari**: Share → **Add to Home Screen**.
+
+Once installed it launches full-screen, works offline, and resumes your last solve.
+
+## Local AI clue assist (Ollama)
+
+The app can call a locally-hosted [Ollama](https://ollama.com) server to draft crossword
+clues while you build in **Create** mode. Everything runs on your machine.
+
+1. Install a model, e.g. `ollama pull llama3.1`.
+2. In the app header, open **AI** and enable it. Set the server URL
+   (default `http://localhost:11434`) and pick a model, then **Test connection**.
+3. In Create mode, select a fully-filled word and press **AI Clue** to get suggestions.
+
+If the browser can't reach Ollama, start it with an allowed origin, e.g.
+`OLLAMA_ORIGINS=http://localhost:5173 ollama serve` (use your app's actual origin).
 
 ## Tech stack
 

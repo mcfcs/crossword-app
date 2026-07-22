@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { PenTool, Sparkles, X, Check, ChevronRight, ChevronDown } from './Icons';
+import React, { useEffect, useRef, useState } from 'react';
+import { PenTool, Sparkles, X, Check, ChevronRight, ChevronDown, Zap } from './Icons';
 
 const ManualEditor = ({
   manualGrid,
@@ -34,8 +34,16 @@ const ManualEditor = ({
   getDateInfoForWord = () => null,
   getDateInfoForWordClue = () => null,
   failedWord = null,
-  difficultyInfo = { score: null, label: '' }
+  difficultyInfo = { score: null, label: '' },
+  aiEnabled = false,
+  aiGenerateClues = () => Promise.resolve([]),
+  onOpenSettings = () => {}
 }) => {
+  const [aiClues, setAiClues] = useState([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [showAiClues, setShowAiClues] = useState(false);
+
   const getDifficultyClass = (difficulty) => {
     const d = (difficulty || '').toUpperCase();
     if (d === 'EASY') return 'text-inkblue';
@@ -64,6 +72,35 @@ const ManualEditor = ({
       container.scrollTop = Math.max(0, targetTop);
     }
   }, [currentWord, manualClues]);
+
+  const wordComplete = !!currentWord?.word && !currentWord.word.includes('_');
+
+  const runAI = async () => {
+    const slot = currentWord?.slot;
+    if (!slot) return;
+    let word = '';
+    for (let i = 0; i < slot.length; i++) {
+      const r = slot.direction === 'across' ? slot.row : slot.row + i;
+      const c = slot.direction === 'across' ? slot.col + i : slot.col;
+      word += manualGrid[r]?.[c] || '';
+    }
+    setShowAiClues(true);
+    if (!word || word.length !== slot.length) {
+      setAiError('Fill in the whole word first, then ask the AI for clues.');
+      setAiClues([]);
+      return;
+    }
+    setAiLoading(true); setAiError(''); setAiClues([]);
+    try {
+      const difficulty = (difficultyInfo?.label || 'MODERATE').toUpperCase();
+      const clues = await aiGenerateClues(word, difficulty);
+      setAiClues(clues);
+      if (clues.length === 0) setAiError('No clues came back — try again or choose another model in AI settings.');
+    } catch (err) {
+      setAiError(err.message || 'Clue generation failed.');
+    }
+    setAiLoading(false);
+  };
 
   if (!manualGrid) return null;
 
@@ -101,7 +138,7 @@ const ManualEditor = ({
           </div>
           <p className="text-ink-faint text-sm mt-1 mb-4">Click a cell to select · click again to flip Across/Down · type letters to fill.</p>
           <div className="rule-hair mb-4" />
-          <div className="overflow-x-auto pb-2"><div className="xw-grid">
+          <div className="overflow-x-auto pb-2"><div className="xw-grid" style={{ '--cols': manualGrid[0]?.length || 15 }}>
             {manualGrid.map((row, r) => <div key={r} className="flex">{row.map((cell, c) => {
               const isSelected = selectedCell?.row === r && selectedCell?.col === c;
               const isInWord = isInCurrentWord(r, c);
@@ -134,19 +171,19 @@ const ManualEditor = ({
               const cellClass = cell === '#'
                 ? 'xw-cell--block'
                 : inFailedWord
-                  ? 'bg-inkblue/20'
+                  ? 'bg-wrong/15'
                   : isSelected
-                    ? 'bg-highlight ring-2 ring-inset ring-accent'
+                    ? 'bg-select ring-1 ring-inset ring-ink/30'
                     : isInWord
-                      ? 'bg-highlight/40'
+                      ? 'bg-word'
                       : shouldShowRequiredMissing && cell
-                        ? 'bg-gold/25'
+                        ? 'bg-gold/20'
                         : inHighlightedWord
-                          ? 'bg-grass/20'
+                          ? 'bg-correct/15'
                           : missingClue && cell
-                            ? 'bg-gold/20'
+                            ? 'bg-gold/15'
                             : '';
-              return <div key={c} onClick={() => handleCellClick(r, c)} className={`xw-cell w-9 h-9 md:w-10 md:h-10 text-sm md:text-base ${cell === '#' ? '' : 'cursor-pointer'} ${cellClass}`}>{cell !== '#' && clueNumber && <span className="xw-num">{clueNumber}</span>}{cell !== '#' && cell && <span className="xw-letter text-ink">{cell}</span>}</div>;
+              return <div key={c} onClick={() => handleCellClick(r, c)} className={`xw-cell ${cell === '#' ? '' : 'cursor-pointer'} ${cellClass}`}>{cell !== '#' && clueNumber && <span className="xw-num">{clueNumber}</span>}{cell !== '#' && cell && <span className="xw-letter text-ink">{cell}</span>}</div>;
             })}</div>)}
           </div></div>
         </div>
@@ -160,9 +197,10 @@ const ManualEditor = ({
                 <div className="font-mono text-2xl font-medium text-ink tracking-[0.28em] mt-1.5">{currentWord.word || '·····'}</div>
                 <div className="text-ink-faint text-sm mt-1">Direction — <span className="text-ink capitalize font-semibold">{selectedDirection}</span></div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button onClick={() => { setClueInput(getClueForCurrentSlot()?.clue || ''); setEditingClue(true); }} className="btn btn-sm"><PenTool size={15} />Edit Clue</button>
                 {words.length > 0 && <button onClick={() => { setShowSuggestions(!showSuggestions); setSuggestions(findSuggestionsForSlot()); }} className="btn btn-sm btn-accent"><Sparkles size={15} />Auto-fill</button>}
+                {aiEnabled && <button onClick={runAI} disabled={aiLoading || !wordComplete} title={wordComplete ? 'Draft clues with your local AI' : 'Fill the word first'} className="btn btn-sm btn-gold"><Zap size={15} />{aiLoading ? 'Thinking…' : 'AI Clue'}</button>}
               </div>
             </div>
 
@@ -208,9 +246,27 @@ const ManualEditor = ({
               </div>
             )}
 
+            {showAiClues && (
+              <div className="mt-4 border border-line rounded-lg overflow-hidden">
+                <div className="bg-paper-sunken px-4 py-2 flex items-center justify-between border-b border-line">
+                  <span className="eyebrow flex items-center gap-1.5"><Zap size={12} className="text-gold" />AI clue ideas</span>
+                  <button onClick={() => setShowAiClues(false)} className="text-ink-faint hover:text-ink"><X size={15} /></button>
+                </div>
+                <div className="p-2">
+                  {aiLoading && <div className="p-3 text-ink-faint text-sm text-center flex items-center justify-center gap-2"><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-ink/25 border-t-ink" />Generating clues…</div>}
+                  {!aiLoading && aiError && (
+                    <div className="p-3 text-wrong text-sm">{aiError} <button onClick={onOpenSettings} className="underline font-semibold">Open AI settings</button></div>
+                  )}
+                  {!aiLoading && !aiError && aiClues.map((c, i) => (
+                    <button key={i} onClick={() => { updateClue(c); setShowAiClues(false); }} className="w-full text-left px-3 py-2 rounded-md hover:bg-word/60 transition text-sm text-ink-soft leading-snug">{c}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {showSuggestions && (
-              <div className="mt-4 border border-ink/15 rounded-sm overflow-hidden">
-                <div className="bg-paper-sunken px-4 py-2 flex items-center justify-between border-b border-ink/12"><span className="eyebrow">Suggestions from CSV</span><button onClick={() => setShowSuggestions(false)} className="text-ink-faint hover:text-ink"><X size={15} /></button></div>
+              <div className="mt-4 border border-line rounded-lg overflow-hidden">
+                <div className="bg-paper-sunken px-4 py-2 flex items-center justify-between border-b border-line"><span className="eyebrow">Suggestions from CSV</span><button onClick={() => setShowSuggestions(false)} className="text-ink-faint hover:text-ink"><X size={15} /></button></div>
                 <div className="max-h-48 overflow-y-auto">
                   {suggestions.length === 0 ? <div className="p-4 text-ink-faint text-center text-sm">No matching words found</div> : suggestions.map((s, i) => (
                     <button key={i} onClick={() => applySuggestion(s)} className="w-full px-4 py-2.5 text-left hover:bg-ink/[0.04] transition border-b border-ink/8 last:border-0">

@@ -1,27 +1,38 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,900;1,9..144,400;1,9..144,600&family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,900;1,400;1,500&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,500&family=Libre+Franklin:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=DM+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ============================================================
-   BROADSHEET — an editorial letterpress design system
-   Newsprint paper · warm ink · vermilion spot colour
+   KROSALITA — a clean, newspaper-crossword design system
+   Bright paper · crisp ink · NYT / LA Times solve palette
+   (blue active word · yellow active cell)
    ============================================================ */
 
 :root {
-  --paper-rgb: 239 231 214;          /* warm newsprint page          */
-  --paper-raised-rgb: 248 242 230;   /* a fresh sheet laid on top     */
-  --paper-sunken-rgb: 227 217 196;   /* inset / chip wells            */
-  --ink-rgb: 33 28 21;               /* warm near-black printing ink  */
-  --ink-soft-rgb: 84 75 61;          /* secondary text                */
-  --ink-faint-rgb: 139 128 105;      /* captions, eyebrows            */
-  --accent-rgb: 249 175 28;           /* editorial vermilion           */
-  --accent-deep-rgb: 142 42 32;      /* pressed / hover accent        */
-  --gold-rgb: 168 118 30;            /* ochre — accolades, hard tags  */
-  --grass-rgb: 60 107 70;            /* "correct" ink green           */
-  --inkblue-rgb: 44 74 110;          /* "revealed" / down ink blue    */
-  --highlight-rgb: 228 224 119;      /* highlighter marigold — selection */
+  --paper-rgb: 247 247 245;          /* soft white page                */
+  --paper-raised-rgb: 255 255 255;   /* panels & cells — pure white     */
+  --paper-sunken-rgb: 239 240 237;   /* inset / chip wells              */
+  --ink-rgb: 26 26 26;               /* near-black text & blocks         */
+  --ink-soft-rgb: 74 74 72;          /* secondary text                  */
+  --ink-faint-rgb: 138 138 134;      /* captions, eyebrows              */
+  --line-rgb: 210 210 205;           /* hairlines / cell borders        */
+
+  --accent-rgb: 43 116 231;          /* crossword blue — primary action */
+  --accent-deep-rgb: 27 86 181;      /* pressed / hover accent          */
+  --gold-rgb: 176 124 20;            /* ochre — tags / dates            */
+
+  --select-rgb: 255 217 59;          /* selected cell — warm yellow     */
+  --word-rgb: 179 213 250;           /* active word — soft blue         */
+  --correct-rgb: 27 154 85;          /* correct letter — green          */
+  --wrong-rgb: 214 58 52;            /* wrong letter — red              */
+  --revealed-rgb: 43 116 231;        /* revealed letter — blue          */
+
+  /* legacy aliases kept so existing utility classes keep resolving */
+  --grass-rgb: var(--correct-rgb);
+  --inkblue-rgb: var(--revealed-rgb);
+  --highlight-rgb: var(--word-rgb);
 
   --paper: rgb(var(--paper-rgb));
   --paper-raised: rgb(var(--paper-raised-rgb));
@@ -29,11 +40,12 @@
   --ink: rgb(var(--ink-rgb));
   --ink-soft: rgb(var(--ink-soft-rgb));
   --ink-faint: rgb(var(--ink-faint-rgb));
+  --line: rgb(var(--line-rgb));
   --accent: rgb(var(--accent-rgb));
   --accent-deep: rgb(var(--accent-deep-rgb));
   --gold: rgb(var(--gold-rgb));
-  --grass: rgb(var(--grass-rgb));
-  --inkblue: rgb(var(--inkblue-rgb));
+  --select: rgb(var(--select-rgb));
+  --word: rgb(var(--word-rgb));
 }
 
 @layer base {
@@ -42,138 +54,125 @@
   body {
     background-color: var(--paper);
     color: var(--ink);
-    font-family: "Schibsted Grotesk", system-ui, sans-serif;
-    font-feature-settings: 'ss01', 'cv01';
+    font-family: "Libre Franklin", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    /* room for the mobile keyboard / iOS safe areas */
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* warm paper glow + vignette, fixed behind everything */
+  /* a whisper of warmth at the top — no heavy grain, keeps cells crisp */
   body::before {
     content: '';
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    background-image:
-      radial-gradient(120% 90% at 50% -10%, rgba(255, 250, 238, 0.6), transparent 60%),
-      radial-gradient(150% 130% at 50% 120%, rgba(33, 28, 21, 0.12), transparent 55%);
-  }
-
-  /* faint newsprint grain, fixed above content (below modals) */
-  body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 60;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size: 200px 200px;
-    mix-blend-mode: multiply;
-    opacity: 0.05;
+    background-image: radial-gradient(120% 80% at 50% -20%, rgba(43, 116, 231, 0.05), transparent 55%);
   }
 
   h1, h2, h3, h4 { font-family: 'Fraunces', Georgia, serif; }
 
-  ::selection { background: rgb(var(--accent-rgb) / 0.24); }
+  ::selection { background: rgb(var(--accent-rgb) / 0.18); }
 
-  /* editorial scrollbars */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-track { background: rgb(var(--ink-rgb) / 0.04); }
+  ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: rgb(var(--ink-rgb) / 0.28);
-    border: 2px solid var(--paper-raised);
-    border-radius: 6px;
+    background: rgb(var(--ink-rgb) / 0.2);
+    border: 2px solid var(--paper);
+    border-radius: 8px;
   }
-  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink-rgb) / 0.45); }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink-rgb) / 0.35); }
+
+  /* let the app own scrolling; avoid rubber-band flashes on mobile */
+  html, body { overscroll-behavior-y: none; }
 }
 
 @layer components {
   /* ---- small tracked label ---- */
   .eyebrow {
-    font-family: "Schibsted Grotesk", system-ui, sans-serif;
+    font-family: "Libre Franklin", system-ui, sans-serif;
     text-transform: uppercase;
-    font-size: 0.64rem;
+    font-size: 0.66rem;
     font-weight: 700;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.14em;
     color: var(--ink-faint);
   }
 
-  /* ---- panels / sheets ---- */
+  /* ---- panels / cards ---- */
   .panel {
     position: relative;
     background: var(--paper-raised);
-    border: 1.5px solid rgb(var(--ink-rgb) / 0.16);
-    border-radius: 3px;
-    box-shadow: 0 18px 40px -30px rgba(33, 28, 21, 0.6);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(26, 26, 26, 0.04), 0 10px 30px -24px rgba(26, 26, 26, 0.5);
   }
-  .panel-pad { padding: 1.5rem; }
+  .panel-pad { padding: 1.25rem; }
+  @media (min-width: 768px) { .panel-pad { padding: 1.5rem; } }
 
-  /* the classic newspaper double rule */
+  /* the newspaper double rule — kept subtle for the masthead */
   .rule-double {
     border: none;
-    height: 5px;
+    height: 4px;
     background:
       linear-gradient(var(--ink), var(--ink)) top/100% 2px no-repeat,
       linear-gradient(var(--ink), var(--ink)) bottom/100% 1px no-repeat;
   }
-  .rule-hair { height: 1px; background: rgb(var(--ink-rgb) / 0.18); border: none; }
+  .rule-hair { height: 1px; background: var(--line); border: none; }
 
-  /* ---- letterpress buttons ---- */
+  /* ---- buttons — clean, flat, tactile ---- */
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    font-family: "Schibsted Grotesk", system-ui, sans-serif;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    font-size: 0.76rem;
+    font-family: "Libre Franklin", system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    font-size: 0.82rem;
     line-height: 1;
-    padding: 0.62rem 1.05rem;
+    padding: 0.6rem 0.95rem;
     color: var(--ink);
     background: var(--paper-raised);
-    border: 1.5px solid var(--ink);
-    border-radius: 2px;
-    box-shadow: 3px 3px 0 0 var(--ink);
-    transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.16s ease, color 0.16s ease;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    box-shadow: 0 1px 1px rgba(26, 26, 26, 0.03);
+    transition: transform 0.1s ease, box-shadow 0.15s ease, background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
     cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
-  .btn:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 0 var(--ink); }
-  .btn:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: 0 0 0 0 var(--ink); }
-  .btn:disabled { opacity: 0.38; cursor: not-allowed; }
+  .btn:hover:not(:disabled) { border-color: rgb(var(--ink-rgb) / 0.35); background: var(--paper-sunken); }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  .btn-accent { background: var(--accent); color: var(--paper-raised); border-color: var(--ink); }
-  .btn-ink { background: var(--ink); color: var(--paper-raised); }
-  .btn-gold { background: var(--gold); color: var(--paper-raised); }
-  .btn-ghost {
-    background: transparent;
-    border-color: rgb(var(--ink-rgb) / 0.28);
-    box-shadow: 2px 2px 0 0 rgb(var(--ink-rgb) / 0.22);
-  }
-  .btn-ghost:hover:not(:disabled) { background: rgb(var(--ink-rgb) / 0.05); box-shadow: 3px 3px 0 0 rgb(var(--ink-rgb) / 0.22); }
+  .btn-accent { background: var(--accent); color: #fff; border-color: transparent; box-shadow: 0 1px 2px rgb(var(--accent-rgb) / 0.4); }
+  .btn-accent:hover:not(:disabled) { background: var(--accent-deep); border-color: transparent; }
+  .btn-ink { background: var(--ink); color: var(--paper-raised); border-color: transparent; }
+  .btn-ink:hover:not(:disabled) { background: #000; border-color: transparent; }
+  .btn-gold { background: var(--gold); color: #fff; border-color: transparent; }
+  .btn-ghost { background: transparent; border-color: var(--line); box-shadow: none; }
+  .btn-ghost:hover:not(:disabled) { background: rgb(var(--ink-rgb) / 0.05); }
 
-  .btn-sm { font-size: 0.66rem; padding: 0.42rem 0.72rem; box-shadow: 2px 2px 0 0 var(--ink); gap: 0.35rem; }
-  .btn-sm:hover:not(:disabled) { box-shadow: 3px 3px 0 0 var(--ink); }
+  .btn-sm { font-size: 0.72rem; padding: 0.42rem 0.7rem; gap: 0.35rem; border-radius: 8px; }
 
   /* ---- form fields ---- */
   .field {
     width: 100%;
-    background: var(--paper-sunken);
-    border: 1.5px solid rgb(var(--ink-rgb) / 0.22);
-    border-radius: 2px;
-    padding: 0.55rem 0.8rem;
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 0.6rem 0.85rem;
     color: var(--ink);
-    font-family: "Schibsted Grotesk", system-ui, sans-serif;
-    font-size: 0.9rem;
+    font-family: "Libre Franklin", system-ui, sans-serif;
+    font-size: 0.95rem;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
-  .field::placeholder { color: rgb(var(--ink-faint-rgb) / 0.85); }
+  .field::placeholder { color: rgb(var(--ink-faint-rgb) / 0.9); }
   .field:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
+    box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.16);
   }
 
   /* ---- mono chip / tag ---- */
@@ -184,33 +183,33 @@
     font-family: "DM Mono", ui-monospace, monospace;
     font-size: 0.72rem;
     letter-spacing: 0.02em;
-    padding: 0.18rem 0.5rem;
-    border: 1px solid rgb(var(--ink-rgb) / 0.2);
-    border-radius: 2px;
-    background: rgb(var(--ink-rgb) / 0.04);
+    padding: 0.16rem 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper-sunken);
     color: var(--ink-soft);
   }
 
-  /* ---- tabs (the masthead nav) ---- */
+  /* ---- tabs (the section nav) ---- */
   .tab {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    font-family: "Schibsted Grotesk", system-ui, sans-serif;
+    gap: 0.45rem;
+    font-family: "Libre Franklin", system-ui, sans-serif;
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    font-size: 0.74rem;
-    padding: 0.6rem 1.1rem;
+    letter-spacing: 0.02em;
+    font-size: 0.85rem;
+    padding: 0.6rem 1rem;
     color: var(--ink-soft);
-    border-bottom: 2px solid transparent;
+    border-bottom: 2.5px solid transparent;
     transition: color 0.15s ease, border-color 0.15s ease;
     cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
   }
   .tab:hover { color: var(--ink); }
-  .tab-active { color: var(--ink); border-bottom-color: var(--accent); }
+  .tab-active { color: var(--accent); border-bottom-color: var(--accent); }
 
-  /* drop-cap flourish for the standfirst */
+  /* drop-cap flourish */
   .dropcap::first-letter {
     font-family: 'Fraunces', Georgia, serif;
     font-weight: 900;
@@ -222,23 +221,38 @@
   }
 
   /* ---- the crossword grid itself ---- */
+  /* Cells size from --cell, which fits the grid to the viewport on phones.
+     Set --cols inline on .xw-grid (number of columns) so the fit math works. */
   .xw-grid {
+    --cols: 15;
+    --cell-max: 2.5rem;
+    --cell: min(var(--cell-max), calc((100vw - 5.5rem) / var(--cols)));
     display: inline-block;
     background: var(--ink);
-    border: 2px solid var(--ink);
-    box-shadow: 5px 5px 0 0 rgb(var(--ink-rgb) / 0.16);
+    border: 2.5px solid var(--ink);
+    border-radius: 3px;
+    box-shadow: 0 8px 24px -18px rgba(26, 26, 26, 0.55);
+  }
+  .xw-grid--play { --cell-max: 2.75rem; }
+  @media (min-width: 640px) {
+    /* on tablet/desktop just use the max size (no fitting needed) */
+    .xw-grid { --cell: var(--cell-max); }
   }
   .xw-cell {
     position: relative;
+    width: var(--cell);
+    height: var(--cell);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: "Schibsted Grotesk", system-ui, sans-serif;
-    font-weight: 700;
+    font-family: "Libre Franklin", system-ui, sans-serif;
+    font-weight: 600;
+    font-size: calc(var(--cell) * 0.46);
     color: var(--ink);
-    background: #fdfaf0;
-    box-shadow: inset 0 0 0 0.5px rgb(var(--ink-rgb) / 0.28);
-    transition: background-color 0.12s ease, color 0.12s ease;
+    background: #ffffff;
+    box-shadow: inset 0 0 0 0.5px rgb(var(--ink-rgb) / 0.22);
+    transition: background-color 0.1s ease, color 0.1s ease;
+    -webkit-tap-highlight-color: transparent;
   }
   .xw-cell--block { background: var(--ink); box-shadow: none; cursor: default; }
   .xw-num {
@@ -246,22 +260,55 @@
     top: 1px;
     left: 2px;
     font-family: "DM Mono", ui-monospace, monospace;
-    font-size: 0.52rem;
+    font-size: 0.55rem;
     line-height: 1;
-    font-weight: 400;
-    color: rgb(var(--ink-rgb) / 0.62);
+    font-weight: 500;
+    color: rgb(var(--ink-rgb) / 0.66);
   }
-  .xw-letter { animation: stamp-in 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  .xw-letter { animation: stamp-in 0.16s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+  /* ---- on-screen keyboard ---- */
+  .kbd-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 3rem;
+    border-radius: 7px;
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    box-shadow: 0 1px 1px rgba(26, 26, 26, 0.06);
+    font-family: "Libre Franklin", system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 1.05rem;
+    color: var(--ink);
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .kbd-key:active { background: var(--accent); color: #fff; border-color: transparent; transform: translateY(1px); }
+  .kbd-key--wide { flex: 1.5 1 0; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; }
 }
 
-/* ---- Tagalog "Edition" — a warmer, redder press run ---- */
+/* ---- Tagalog "Edition" — a warmer red accent run ---- */
 .tagalog-theme {
-  --paper-rgb: 240 226 209;
-  --paper-raised-rgb: 249 238 224;
-  --paper-sunken-rgb: 228 209 187;
-  --accent-rgb: 178 42 33;
-  --accent-deep-rgb: 132 30 24;
-  --gold-rgb: 156 102 24;
+  --accent-rgb: 200 58 46;
+  --accent-deep-rgb: 158 40 31;
+  --gold-rgb: 160 104 24;
+  --word-rgb: 248 205 176;   /* warm peach active word to match red accent */
+  --revealed-rgb: 176 88 40;
+}
+
+/* ---- print: a clean grid + clues sheet ---- */
+@media print {
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { background: #fff; }
+  body::before { display: none !important; }
+  nav, header .eyebrow, .btn, .tab, .kbd-key, .chip, .rule-double,
+  .no-print, [role="dialog"] { display: none !important; }
+  .panel { box-shadow: none !important; border: 1px solid #d2d2cd !important; break-inside: avoid; }
+  .xw-grid { box-shadow: none !important; }
+  .max-h-\[640px\], .max-h-\[720px\] { max-height: none !important; overflow: visible !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {

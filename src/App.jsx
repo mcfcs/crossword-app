@@ -1,13 +1,17 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Languages } from './components/Icons';
+import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Languages, Settings, Flame, DownloadCloud, Zap, Share } from './components/Icons';
 import DictionaryModal from './components/DictionaryModal';
 import LayoutEditorModal from './components/LayoutEditorModal';
 import LayoutSelector from './components/LayoutSelector';
 import ManualEditor from './components/ManualEditor';
 import PlayView from './components/PlayView';
 import RequiredWordsModal from './components/RequiredWordsModal';
+import SettingsModal from './components/SettingsModal';
 import { DEFAULT_LAYOUTS } from './data/layouts';
 import { parseCSV, findSlots, assignNumbers, getWordFromGrid, getLayoutStats, getCellNumber } from './utils/crosswordUtils';
+import { loadJSON, saveJSON } from './utils/storage';
+import { todayKey, seedFromString, makeRng, seededShuffle, getStreak, recordDailySolve, isDailySolved } from './utils/daily';
+import { getOllamaConfig, saveOllamaConfig, generateClues } from './utils/ollama';
 
 const CrosswordGenerator = () => {
   const [activeTab, setActiveTab] = useState('auto');
@@ -77,9 +81,17 @@ const CrosswordGenerator = () => {
   const [editWord, setEditWord] = useState('');
   const [editClue, setEditClue] = useState('');
   
+  // Settings / AI / PWA / daily
+  const [showSettings, setShowSettings] = useState(false);
+  const [ollamaConfig, setOllamaConfig] = useState(() => getOllamaConfig());
+  const [installPromptEvent, setInstallPromptEvent] = useState(null);
+  const [isDailyMode, setIsDailyMode] = useState(false);
+  const [streak, setStreak] = useState(() => getStreak());
+
   const puzzleFileInputRef = useRef(null);
   const playTimerRef = useRef(null);
   const workerRef = useRef(null);
+  const restoredRef = useRef(false);
 
   // =========== LOGGING ============
   // Helper to log debug messages
@@ -941,7 +953,7 @@ const CrosswordGenerator = () => {
     
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, totalWidth, totalHeight);
-    ctx.fillStyle = '#1e293b';
+    ctx.fillStyle = '#1a1a1a';
     ctx.font = 'bold 24px Georgia, serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -956,17 +968,17 @@ const CrosswordGenerator = () => {
         const y = gridStartY + r * cellSize;
         const cell = currentGrid[r][c];
         if (cell === '#') {
-          ctx.fillStyle = '#1e293b';
+          ctx.fillStyle = '#1a1a1a';
           ctx.fillRect(x, y, cellSize, cellSize);
         } else {
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(x, y, cellSize, cellSize);
-          ctx.strokeStyle = '#64748b';
+          ctx.strokeStyle = '#c9c9c4';
           ctx.lineWidth = 1;
           ctx.strokeRect(x, y, cellSize, cellSize);
           const num = getNumberForCell(r, c, currentClues);
           if (num) {
-            ctx.fillStyle = '#334155';
+            ctx.fillStyle = '#4a4a48';
             ctx.font = 'bold 10px Arial';
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
@@ -996,23 +1008,23 @@ const CrosswordGenerator = () => {
     
     const acrossStartX = gridStartX + gridWidth + cluesPadding;
     let acrossY = gridStartY;
-    ctx.fillStyle = '#1e293b';
+    ctx.fillStyle = '#1a1a1a';
     ctx.font = 'bold 16px Georgia, serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText('ACROSS', acrossStartX, acrossY);
     acrossY += 28;
-    ctx.fillStyle = '#334155';
+    ctx.fillStyle = '#4a4a48';
     for (const clue of acrossCluesText) { acrossY = drawWrappedText(clue, acrossStartX, acrossY, clueColumnWidth - 10); acrossY += clueGap; }
     
     const downStartX = acrossStartX + clueColumnWidth + cluesPadding;
     let downY = gridStartY;
-    ctx.fillStyle = '#1e293b';
+    ctx.fillStyle = '#1a1a1a';
     ctx.font = 'bold 16px Georgia, serif';
     ctx.textBaseline = 'top';
     ctx.fillText('DOWN', downStartX, downY);
     downY += 28;
-    ctx.fillStyle = '#334155';
+    ctx.fillStyle = '#4a4a48';
     for (const clue of downCluesText) { downY = drawWrappedText(clue, downStartX, downY, clueColumnWidth - 10); downY += clueGap; }
     
     const imageUrl = canvas.toDataURL('image/png');
@@ -1046,6 +1058,54 @@ const CrosswordGenerator = () => {
       a.click();
       URL.revokeObjectURL(url);
     }, 500);
+  };
+
+  // Share a clean, blank puzzle image (structure + numbers only, no answers)
+  // via the Web Share API on mobile, falling back to a PNG download.
+  const sharePuzzle = async () => {
+    const currentGrid = activeTab === 'auto' ? grid : activeTab === 'play' ? playGrid : manualGrid;
+    const currentClues = activeTab === 'auto' ? clues : activeTab === 'play' ? playClues : manualClues;
+    if (!currentGrid || !currentGrid.length) return;
+    const rows = currentGrid.length, cols = currentGrid[0].length;
+    const cell = 44, pad = 24, title = 54;
+    const canvas = document.createElement('canvas');
+    canvas.width = pad * 2 + cols * cell;
+    canvas.height = title + pad + rows * cell + 34;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#f7f7f5'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#1a1a1a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 26px Georgia, serif';
+    ctx.fillText('Krosalita', canvas.width / 2, title / 2 + 8);
+    const gx = pad, gy = title;
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(gx - 2, gy - 2, cols * cell + 4, rows * cell + 4);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = gx + c * cell, y = gy + r * cell;
+        if (currentGrid[r][c] === '#') { ctx.fillStyle = '#1a1a1a'; ctx.fillRect(x, y, cell, cell); }
+        else {
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(x, y, cell, cell);
+          ctx.strokeStyle = '#c9c9c4'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, cell, cell);
+          const num = getCellNumber(currentClues, r, c);
+          if (num) { ctx.fillStyle = '#4a4a48'; ctx.font = '500 10px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(String(num), x + 3, y + 3); }
+        }
+      }
+    }
+    ctx.fillStyle = '#8a8a86'; ctx.font = '13px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Made with Krosalita', canvas.width / 2, gy + rows * cell + 20);
+
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+    if (!blob) return;
+    const file = new File([blob], 'krosalita-puzzle.png', { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ title: 'Krosalita crossword', text: 'Can you solve this crossword?', files: [file] });
+        return;
+      } catch { /* cancelled or unsupported — fall back to download */ }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'krosalita-puzzle.png'; a.click();
+    URL.revokeObjectURL(url);
   };
 
   const getNumberForCell = (r, c, clueSet = clues) => getCellNumber(clueSet, r, c);
@@ -1309,59 +1369,81 @@ const CrosswordGenerator = () => {
     return c === slot.col && r >= slot.row && r < slot.row + slot.length;
   };
   
-  const handlePlayKeyDown = (e) => {
-    if (showDictionary || showRequiredModal || showLayoutModal) return;
-    if (isFormElement(e.target)) return;
-    if (activeTab !== 'play' || !playSelectedCell || !playGrid) return;
-    
+  // Core Play input — shared by the physical keyboard and the on-screen keyboard.
+  const applyPlayKey = (key) => {
+    if (!playSelectedCell || !playGrid) return;
     const { row, col } = playSelectedCell;
-    
-    if (e.key === 'Backspace') {
-      e.preventDefault();
+
+    if (key === 'Backspace') {
       const newGrid = playGrid.map(r => [...r]);
-      newGrid[row][col] = '';
-      setPlayGrid(newGrid);
-      
-      // Move to previous cell
-      if (playDirection === 'across' && col > 0 && playGrid[row][col - 1] !== '#') {
+      if (newGrid[row][col]) {
+        // clear the current cell, stay put
+        newGrid[row][col] = '';
+        setPlayGrid(newGrid);
+      } else if (playDirection === 'across' && col > 0 && playGrid[row][col - 1] !== '#') {
+        // empty already → step back and clear
+        newGrid[row][col - 1] = '';
+        setPlayGrid(newGrid);
         setPlaySelectedCell({ row, col: col - 1 });
       } else if (playDirection === 'down' && row > 0 && playGrid[row - 1][col] !== '#') {
+        newGrid[row - 1][col] = '';
+        setPlayGrid(newGrid);
         setPlaySelectedCell({ row: row - 1, col });
       }
       return;
     }
-    
-    if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
-      e.preventDefault();
+
+    if (key.length === 1 && /[a-zA-Z]/.test(key)) {
       const newGrid = playGrid.map(r => [...r]);
-      newGrid[row][col] = e.key.toUpperCase();
+      newGrid[row][col] = key.toUpperCase();
       setPlayGrid(newGrid);
-      
-      // Move to next cell
+      // advance to the next cell in the current word
       if (playDirection === 'across' && col < playGrid[0].length - 1 && playGrid[row][col + 1] !== '#') {
         setPlaySelectedCell({ row, col: col + 1 });
       } else if (playDirection === 'down' && row < playGrid.length - 1 && playGrid[row + 1][col] !== '#') {
         setPlaySelectedCell({ row: row + 1, col });
       }
-      
-      // Check if puzzle is complete (even if auto check is off, to stop timer when finished)
+      // Check completion (even if auto-check is off, so the timer stops)
       checkPlayComplete(newGrid);
+      return;
     }
-    
+
     // Arrow key navigation
-    if (e.key === 'ArrowRight' && col < playGrid[0].length - 1 && playGrid[row][col + 1] !== '#') {
+    if (key === 'ArrowRight' && col < playGrid[0].length - 1 && playGrid[row][col + 1] !== '#') {
       setPlaySelectedCell({ row, col: col + 1 });
       setPlayDirection('across');
-    } else if (e.key === 'ArrowLeft' && col > 0 && playGrid[row][col - 1] !== '#') {
+    } else if (key === 'ArrowLeft' && col > 0 && playGrid[row][col - 1] !== '#') {
       setPlaySelectedCell({ row, col: col - 1 });
       setPlayDirection('across');
-    } else if (e.key === 'ArrowDown' && row < playGrid.length - 1 && playGrid[row + 1][col] !== '#') {
+    } else if (key === 'ArrowDown' && row < playGrid.length - 1 && playGrid[row + 1][col] !== '#') {
       setPlaySelectedCell({ row: row + 1, col });
       setPlayDirection('down');
-    } else if (e.key === 'ArrowUp' && row > 0 && playGrid[row - 1][col] !== '#') {
+    } else if (key === 'ArrowUp' && row > 0 && playGrid[row - 1][col] !== '#') {
       setPlaySelectedCell({ row: row - 1, col });
       setPlayDirection('down');
     }
+  };
+
+  const handlePlayKeyDown = (e) => {
+    if (showDictionary || showRequiredModal || showLayoutModal) return;
+    if (isFormElement(e.target)) return;
+    if (activeTab !== 'play' || !playSelectedCell || !playGrid) return;
+    if (e.key === 'Backspace' || e.key.startsWith('Arrow') || (e.key.length === 1 && /[a-zA-Z]/.test(e.key))) {
+      e.preventDefault();
+    }
+    applyPlayKey(e.key);
+  };
+
+  // Jump the selection to the next/previous clue in the active direction (wraps).
+  const goToAdjacentClue = (delta) => {
+    if (!playClues) return;
+    const list = playDirection === 'across' ? playClues.across : playClues.down;
+    if (!list || list.length === 0) return;
+    const slot = getPlayCurrentSlot();
+    let idx = slot ? list.findIndex(c => c.row === slot.row && c.col === slot.col) : -1;
+    idx = idx === -1 ? 0 : (idx + delta + list.length) % list.length;
+    const c = list[idx];
+    setPlaySelectedCell({ row: c.row, col: c.col });
   };
   
   const checkPlayComplete = (currentGrid) => {
@@ -1586,10 +1668,114 @@ const CrosswordGenerator = () => {
     if (showSuggestions && words.length > 0) setSuggestions(findSuggestionsForSlot());
   }, [selectedCell, selectedDirection, manualGrid, showSuggestions]);
 
+  // ============ PWA INSTALL ============
+  React.useEffect(() => {
+    const onBeforeInstall = (e) => { e.preventDefault(); setInstallPromptEvent(e); };
+    const onInstalled = () => setInstallPromptEvent(null);
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPromptEvent) return;
+    installPromptEvent.prompt();
+    try { await installPromptEvent.userChoice; } catch { /* ignore */ }
+    setInstallPromptEvent(null);
+  };
+
+  const handleSaveOllama = (cfg) => {
+    const next = { ...ollamaConfig, ...cfg };
+    setOllamaConfig(next);
+    saveOllamaConfig(next);
+  };
+
+  const aiGenerateClues = (word, difficulty = 'MODERATE') =>
+    generateClues({
+      baseUrl: ollamaConfig.baseUrl,
+      model: ollamaConfig.model,
+      word,
+      difficulty,
+      count: 3,
+      language: tagalogMode ? 'Tagalog' : 'English',
+    });
+
+  // ============ DAILY PUZZLE ============
+  const handleDaily = () => {
+    if (words.length === 0) { setError('Load a word list first to build today’s puzzle.'); return; }
+    const seed = seedFromString(todayKey());
+    const rng = makeRng(seed);
+    const dayWords = seededShuffle(words, rng);
+    const layoutIdx = layouts.length ? seed % layouts.length : 0;
+    setSelectedLayoutIndex(layoutIdx);
+    setIsDailyMode(true);
+    generatePuzzle(dayWords, layoutIdx, true, [], 'anchor', 'random');
+  };
+
+  // Record a streak when the daily puzzle is completed (once per day).
+  React.useEffect(() => {
+    if (playComplete && isDailyMode && !isDailySolved()) {
+      setStreak(recordDailySolve());
+      setIsDailyMode(false);
+    }
+  }, [playComplete, isDailyMode]);
+
+  // ============ AUTO-SAVE & RESUME ============
+  // Restore a saved session once on mount (primarily an in-progress solve).
+  React.useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const s = loadJSON('session', null);
+    if (!s) return;
+    if (typeof s.selectedLayoutIndex === 'number') setSelectedLayoutIndex(s.selectedLayoutIndex);
+    if (s.difficultyChoice) setDifficultyChoice(s.difficultyChoice);
+    if (s.grid) { setGrid(s.grid); setClues(s.clues || { across: [], down: [] }); }
+    if (s.latestGrid) { setLatestGrid(s.latestGrid); setLatestClues(s.latestClues || null); }
+    if (s.play && s.play.playAnswers) {
+      setPlayAnswers(s.play.playAnswers);
+      setPlayGrid(s.play.playGrid);
+      setPlayClues(s.play.playClues || { across: [], down: [] });
+      setRevealedCells(new Set(s.play.revealedCells || []));
+      setPlayTimer(s.play.playTimer || 0);
+      setPlayComplete(!!s.play.playComplete);
+      setPlayDirection(s.play.playDirection || 'across');
+      setIsDailyMode(!!s.play.isDailyMode);
+      setPlayTimerActive(!s.play.playComplete);
+      if (s.activeTab === 'play') setActiveTab('play');
+    }
+  }, []);
+
+  // Persist the working session whenever it changes.
+  React.useEffect(() => {
+    if (!restoredRef.current) return;
+    saveJSON('session', {
+      activeTab,
+      selectedLayoutIndex,
+      difficultyChoice,
+      grid,
+      clues,
+      latestGrid,
+      latestClues,
+      play: playAnswers ? {
+        playAnswers,
+        playGrid,
+        playClues,
+        revealedCells: [...revealedCells],
+        playTimer,
+        playComplete,
+        playDirection,
+        isDailyMode,
+      } : null,
+    });
+  }, [activeTab, selectedLayoutIndex, difficultyChoice, grid, clues, latestGrid, latestClues, playAnswers, playGrid, playClues, revealedCells, playTimer, playComplete, playDirection, isDailyMode]);
+
   const layoutIndexForTab = Math.min(activeTab === 'create' ? currentLayoutIndex : selectedLayoutIndex, Math.max(layouts.length - 1, 0));
 
   return (
-    <div className={`relative z-10 min-h-screen px-4 py-8 md:px-8 ${tagalogMode ? 'tagalog-theme' : ''}`} onKeyDown={activeTab === 'play' ? handlePlayKeyDown : handleKeyDown} tabIndex={0}>
+    <div className={`relative z-10 min-h-screen overflow-x-hidden px-3 py-6 sm:px-4 sm:py-8 md:px-8 ${tagalogMode ? 'tagalog-theme' : ''}`} onKeyDown={activeTab === 'play' ? handlePlayKeyDown : handleKeyDown} tabIndex={0}>
       <div className="max-w-7xl mx-auto">
         {/* ===================== MASTHEAD ===================== */}
         <header className="mb-8 animate-rise-in">
@@ -1610,15 +1796,28 @@ const CrosswordGenerator = () => {
           </p>
         </header>
 
-        {/* ===================== EDITION TOGGLE ===================== */}
-        <div className="flex justify-center mb-7">
+        {/* ===================== CONTROLS CLUSTER ===================== */}
+        <div className="flex justify-center flex-wrap items-center gap-2 mb-7">
           <button
             onClick={() => setTagalogMode(prev => !prev)}
             className={`btn btn-sm ${tagalogMode ? 'btn-accent' : ''}`}
           >
             <Languages size={14} />
-            {tagalogMode ? 'Tagalog Edition · On' : 'Tagalog Edition · Off'}
+            {tagalogMode ? 'Tagalog · On' : 'Tagalog · Off'}
           </button>
+          <button onClick={() => setShowSettings(true)} className={`btn btn-sm ${ollamaConfig.enabled ? 'btn-ink' : 'btn-ghost'}`}>
+            <Zap size={14} />AI {ollamaConfig.enabled ? 'On' : 'Off'}
+          </button>
+          {installPromptEvent && (
+            <button onClick={handleInstall} className="btn btn-sm btn-accent">
+              <DownloadCloud size={14} />Install App
+            </button>
+          )}
+          {streak.current > 0 && (
+            <span className="chip border-gold/40 text-gold" title={`Best streak: ${streak.best}`}>
+              <Flame size={13} />{streak.current}-day streak
+            </span>
+          )}
         </div>
 
         {/* ===================== SECTION NAV ===================== */}
@@ -1664,6 +1863,12 @@ const CrosswordGenerator = () => {
             {activeTab === 'auto' && !isGenerating && (
               <button onClick={() => { setRequiredAction('auto'); setShowRequiredModal(true); }} disabled={words.length === 0} className="btn btn-accent">
                 <RefreshCw size={16} />Generate
+              </button>
+            )}
+
+            {activeTab === 'auto' && !isGenerating && (
+              <button onClick={handleDaily} disabled={words.length === 0} className="btn btn-gold" title="Build & play today's puzzle — solve it to grow your streak">
+                <Flame size={15} />Today’s Puzzle
               </button>
             )}
 
@@ -1747,6 +1952,10 @@ const CrosswordGenerator = () => {
               <Save size={16} />Export
             </button>
 
+            <button onClick={sharePuzzle} disabled={activeTab === 'auto' ? !grid : !manualGrid} className="btn">
+              <Share size={16} />Share
+            </button>
+
             <label className="btn cursor-pointer">
               <FolderOpen size={16} />Import
               <input type="file" accept=".json" onChange={(e) => { importPuzzle(e); }} ref={puzzleFileInputRef} className="hidden" />
@@ -1812,6 +2021,10 @@ const CrosswordGenerator = () => {
               <input type="file" accept=".json" onChange={(e) => { importPuzzlePlay(e); }} ref={puzzleFileInputRef} className="hidden" />
             </label>
 
+            <button onClick={sharePuzzle} disabled={!playGrid} className="btn">
+              <Share size={16} />Share
+            </button>
+
             <button onClick={() => setDebugMode(!debugMode)} className={`btn btn-sm ${debugMode ? 'btn-ink' : 'btn-ghost'}`}>
               <Bug size={15} />Debug
             </button>
@@ -1850,8 +2063,8 @@ const CrosswordGenerator = () => {
                 )}
               </div>
               <div className="rule-hair my-4" />
-              <div className="overflow-x-auto pb-2"><div className="xw-grid">
-                {grid.map((row, r) => <div key={r} className="flex">{row.map((cell, c) => <div key={c} className={`xw-cell w-9 h-9 md:w-10 md:h-10 text-sm md:text-base ${cell === '#' ? 'xw-cell--block' : ''}`}>{cell !== '#' && getNumberForCell(r, c) && <span className="xw-num">{getNumberForCell(r, c)}</span>}{cell !== '#' && cell !== null && <span className="xw-letter">{cell}</span>}</div>)}</div>)}
+              <div className="overflow-x-auto pb-2"><div className="xw-grid" style={{ '--cols': grid[0]?.length || 15 }}>
+                {grid.map((row, r) => <div key={r} className="flex">{row.map((cell, c) => <div key={c} className={`xw-cell ${cell === '#' ? 'xw-cell--block' : ''}`}>{cell !== '#' && getNumberForCell(r, c) && <span className="xw-num">{getNumberForCell(r, c)}</span>}{cell !== '#' && cell !== null && <span className="xw-letter">{cell}</span>}</div>)}</div>)}
               </div></div>
             </div>
             <div className="panel panel-pad max-h-[640px] overflow-y-auto">
@@ -1905,6 +2118,9 @@ const CrosswordGenerator = () => {
             highlightMissingRequired={highlightMissingRequired}
             setHighlightMissingRequired={setHighlightMissingRequired}
             difficultyInfo={difficultyInfo}
+            aiEnabled={ollamaConfig.enabled}
+            aiGenerateClues={aiGenerateClues}
+            onOpenSettings={() => setShowSettings(true)}
           />
         )}
         
@@ -1956,6 +2172,8 @@ const CrosswordGenerator = () => {
             setPlayDirection={setPlayDirection}
             formatTime={formatTime}
             difficultyInfo={difficultyInfo}
+            onVirtualKey={applyPlayKey}
+            goToAdjacentClue={goToAdjacentClue}
           />
         )}
         
@@ -2012,6 +2230,13 @@ const CrosswordGenerator = () => {
         initialDifficulty={difficultyChoice}
       />
       
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        config={ollamaConfig}
+        onSave={handleSaveOllama}
+      />
+
       <DictionaryModal
         isOpen={showDictionary}
         onClose={() => setShowDictionary(false)}

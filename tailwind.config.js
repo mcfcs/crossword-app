@@ -17,18 +17,26 @@ export default {
           soft: 'rgb(var(--ink-soft-rgb) / <alpha-value>)',
           faint: 'rgb(var(--ink-faint-rgb) / <alpha-value>)',
         },
+        line: 'rgb(var(--line-rgb) / <alpha-value>)',
         accent: {
           DEFAULT: 'rgb(var(--accent-rgb) / <alpha-value>)',
           deep: 'rgb(var(--accent-deep-rgb) / <alpha-value>)',
         },
         gold: 'rgb(var(--gold-rgb) / <alpha-value>)',
-        grass: 'rgb(var(--grass-rgb) / <alpha-value>)',
-        inkblue: 'rgb(var(--inkblue-rgb) / <alpha-value>)',
-        highlight: 'rgb(var(--highlight-rgb) / <alpha-value>)',
+        /* solve palette */
+        select: 'rgb(var(--select-rgb) / <alpha-value>)',
+        word: 'rgb(var(--word-rgb) / <alpha-value>)',
+        correct: 'rgb(var(--correct-rgb) / <alpha-value>)',
+        wrong: 'rgb(var(--wrong-rgb) / <alpha-value>)',
+        revealed: 'rgb(var(--revealed-rgb) / <alpha-value>)',
+        /* legacy aliases (still referenced across the app) */
+        grass: 'rgb(var(--correct-rgb) / <alpha-value>)',
+        inkblue: 'rgb(var(--revealed-rgb) / <alpha-value>)',
+        highlight: 'rgb(var(--word-rgb) / <alpha-value>)',
       },
       fontFamily: {
         display: ['Fraunces', 'Georgia', 'serif'],
-        sans: ['"Schibsted Grotesk"', 'system-ui', 'sans-serif'],
+        sans: ['"Libre Franklin"', 'system-ui', 'sans-serif'],
         mono: ['"DM Mono"', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
