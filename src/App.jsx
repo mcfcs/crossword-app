@@ -1160,33 +1160,49 @@ const CrosswordGenerator = () => {
     .map(w => w.trim().toUpperCase().replace(/[^A-Z]/g, ''))
     .filter(Boolean);
 
+  // Core Create-grid input — shared by the physical keyboard and the on-screen keyboard.
+  const applyManualKey = (key) => {
+    if (!selectedCell || !manualGrid) return;
+    const { row, col } = selectedCell;
+    if (key === 'Backspace') {
+      const newGrid = manualGrid.map(r => [...r]);
+      if (newGrid[row][col]) {
+        newGrid[row][col] = '';
+        setManualGrid(newGrid);
+      } else if (selectedDirection === 'across' && col > 0 && manualGrid[row][col - 1] !== '#') {
+        newGrid[row][col - 1] = '';
+        setManualGrid(newGrid);
+        setSelectedCell({ row, col: col - 1 });
+      } else if (selectedDirection === 'down' && row > 0 && manualGrid[row - 1][col] !== '#') {
+        newGrid[row - 1][col] = '';
+        setManualGrid(newGrid);
+        setSelectedCell({ row: row - 1, col });
+      }
+      return;
+    }
+    if (key.length === 1 && /[a-zA-Z]/.test(key)) {
+      const newGrid = manualGrid.map(r => [...r]);
+      newGrid[row][col] = key.toUpperCase();
+      setManualGrid(newGrid);
+      if (selectedDirection === 'across' && col < manualGrid[0].length - 1 && manualGrid[row][col + 1] !== '#') setSelectedCell({ row, col: col + 1 });
+      else if (selectedDirection === 'down' && row < manualGrid.length - 1 && manualGrid[row + 1][col] !== '#') setSelectedCell({ row: row + 1, col });
+      return;
+    }
+    if (key === 'ArrowRight' && col < manualGrid[0].length - 1 && manualGrid[row][col + 1] !== '#') { setSelectedCell({ row, col: col + 1 }); setSelectedDirection('across'); }
+    else if (key === 'ArrowLeft' && col > 0 && manualGrid[row][col - 1] !== '#') { setSelectedCell({ row, col: col - 1 }); setSelectedDirection('across'); }
+    else if (key === 'ArrowDown' && row < manualGrid.length - 1 && manualGrid[row + 1][col] !== '#') { setSelectedCell({ row: row + 1, col }); setSelectedDirection('down'); }
+    else if (key === 'ArrowUp' && row > 0 && manualGrid[row - 1][col] !== '#') { setSelectedCell({ row: row - 1, col }); setSelectedDirection('down'); }
+  };
+
   const handleKeyDown = (e) => {
     if (showDictionary || showRequiredModal || showLayoutModal) return;
     if (isFormElement(e.target)) return;
     if (editingClue) return;
     if (!selectedCell || !manualGrid) return;
-    const { row, col } = selectedCell;
-    if (e.key === 'Backspace') {
+    if (e.key === 'Backspace' || e.key.startsWith('Arrow') || (e.key.length === 1 && /[a-zA-Z]/.test(e.key))) {
       e.preventDefault();
-      const newGrid = manualGrid.map(r => [...r]);
-      newGrid[row][col] = '';
-      setManualGrid(newGrid);
-      if (selectedDirection === 'across' && col > 0 && manualGrid[row][col - 1] !== '#') setSelectedCell({ row, col: col - 1 });
-      else if (selectedDirection === 'down' && row > 0 && manualGrid[row - 1][col] !== '#') setSelectedCell({ row: row - 1, col });
-      return;
     }
-    if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
-      e.preventDefault();
-      const newGrid = manualGrid.map(r => [...r]);
-      newGrid[row][col] = e.key.toUpperCase();
-      setManualGrid(newGrid);
-      if (selectedDirection === 'across' && col < manualGrid[0].length - 1 && manualGrid[row][col + 1] !== '#') setSelectedCell({ row, col: col + 1 });
-      else if (selectedDirection === 'down' && row < manualGrid.length - 1 && manualGrid[row + 1][col] !== '#') setSelectedCell({ row: row + 1, col });
-    }
-    if (e.key === 'ArrowRight' && col < manualGrid[0].length - 1 && manualGrid[row][col + 1] !== '#') { setSelectedCell({ row, col: col + 1 }); setSelectedDirection('across'); }
-    else if (e.key === 'ArrowLeft' && col > 0 && manualGrid[row][col - 1] !== '#') { setSelectedCell({ row, col: col - 1 }); setSelectedDirection('across'); }
-    else if (e.key === 'ArrowDown' && row < manualGrid.length - 1 && manualGrid[row + 1][col] !== '#') { setSelectedCell({ row: row + 1, col }); setSelectedDirection('down'); }
-    else if (e.key === 'ArrowUp' && row > 0 && manualGrid[row - 1][col] !== '#') { setSelectedCell({ row: row - 1, col }); setSelectedDirection('down'); }
+    applyManualKey(e.key);
   };
 
   const getCurrentWord = () => {
@@ -2121,6 +2137,7 @@ const CrosswordGenerator = () => {
             aiEnabled={ollamaConfig.enabled}
             aiGenerateClues={aiGenerateClues}
             onOpenSettings={() => setShowSettings(true)}
+            onVirtualKey={applyManualKey}
           />
         )}
         

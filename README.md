@@ -45,8 +45,21 @@ clues while you build in **Create** mode. Everything runs on your machine.
    (default `http://localhost:11434`) and pick a model, then **Test connection**.
 3. In Create mode, select a fully-filled word and press **AI Clue** to get suggestions.
 
-If the browser can't reach Ollama, start it with an allowed origin, e.g.
-`OLLAMA_ORIGINS=http://localhost:5173 ollama serve` (use your app's actual origin).
+### Connection troubleshooting (incl. Tailscale)
+
+The Settings dialog shows the exact origin to allow. In general, on the machine running Ollama:
+
+- **Allow the web origin (CORS):** `OLLAMA_ORIGINS=http://localhost:7891` (or `*` while testing).
+- **Expose it beyond localhost** (required to reach it from a phone or over Tailscale):
+  `OLLAMA_HOST=0.0.0.0:11434`.
+- Restart Ollama with those env vars set (they must be set for the `ollama serve` process).
+
+**Over Tailscale:** if the browser and Ollama are on different devices, `localhost` points at the
+*browser's* device. Set the app's Ollama URL to the **host's Tailscale address**, e.g.
+`http://100.x.x.x:11434` (or its MagicDNS name), and include that same origin in `OLLAMA_ORIGINS`.
+
+**Mixed content:** a site served over HTTPS cannot call an `http://` Ollama. Use the app over
+HTTP (the dev/preview server is HTTP) or put Ollama behind HTTPS.
 
 ## Tech stack
 
@@ -64,7 +77,8 @@ npm ci
 npm run dev
 ```
 
-Then open the local Vite URL (usually `http://localhost:5173`).
+Then open the local Vite URL (`http://localhost:7891`). The dev/preview server also
+listens on your LAN / Tailscale address, so you can open it from a phone on the same tailnet.
 
 ## Available scripts
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check, RefreshCw, Zap } from './Icons';
-import { listModels } from '../utils/ollama';
+import { listModels, mixedContentWarning } from '../utils/ollama';
 
 /**
  * Settings for the local AI (Ollama) integration. All values are stored
@@ -25,6 +25,9 @@ const SettingsModal = ({ isOpen, onClose, config, onSave }) => {
   }, [isOpen, config]);
 
   if (!isOpen) return null;
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const mixed = mixedContentWarning(baseUrl);
 
   const test = async () => {
     setTesting(true);
@@ -93,9 +96,20 @@ const SettingsModal = ({ isOpen, onClose, config, onSave }) => {
           </div>
         </div>
 
-        <div className="mt-5 text-xs text-ink-faint leading-relaxed border-t border-line pt-4">
-          Tip: install a model with <code className="chip">ollama pull llama3.1</code>. If the browser can't connect, start Ollama with
-          <code className="chip">OLLAMA_ORIGINS={'{origin}'}</code> so this page's origin is allowed.
+        {mixed && (
+          <div className="mt-4 text-xs text-wrong bg-wrong/10 border border-wrong/30 rounded-lg px-3 py-2 leading-relaxed">{mixed}</div>
+        )}
+
+        <div className="mt-5 text-xs text-ink-faint leading-relaxed border-t border-line pt-4 space-y-2">
+          <div className="font-semibold text-ink-soft">Can’t connect? On the machine running Ollama:</div>
+          <ul className="list-disc pl-4 space-y-1">
+            <li>Install a model: <code className="chip">ollama pull llama3.1</code></li>
+            <li>Allow this page: <code className="chip">OLLAMA_ORIGINS={origin || '*'}</code></li>
+            <li>Expose beyond localhost (needed for phone / Tailscale): <code className="chip">OLLAMA_HOST=0.0.0.0:11434</code></li>
+            <li>Restart Ollama with those set, then <b>Test connection</b>.</li>
+          </ul>
+          <div>Over <span className="font-semibold">Tailscale</span>, set the URL above to the host’s Tailscale address (e.g. <code className="chip">http://100.x.x.x:11434</code>) — not <code className="chip">localhost</code>.</div>
+          <div className="text-ink-faint/80">This page’s origin: <span className="font-mono text-ink-soft break-all">{origin || 'unknown'}</span></div>
         </div>
 
         <div className="flex gap-3 mt-5">

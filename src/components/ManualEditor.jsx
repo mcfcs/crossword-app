@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { PenTool, Sparkles, X, Check, ChevronRight, ChevronDown, Zap } from './Icons';
+import MobileSolveDock from './MobileSolveDock';
 
 const ManualEditor = ({
   manualGrid,
@@ -37,7 +38,8 @@ const ManualEditor = ({
   difficultyInfo = { score: null, label: '' },
   aiEnabled = false,
   aiGenerateClues = () => Promise.resolve([]),
-  onOpenSettings = () => {}
+  onOpenSettings = () => {},
+  onVirtualKey = () => {}
 }) => {
   const [aiClues, setAiClues] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
@@ -102,10 +104,24 @@ const ManualEditor = ({
     setAiLoading(false);
   };
 
+  const activeSlot = currentWord?.slot;
+  const activeClue = activeSlot
+    ? (selectedDirection === 'across' ? manualClues.across : manualClues.down).find(c => c.row === activeSlot.row && c.col === activeSlot.col)
+    : null;
+
+  const goToAdjacentClue = (delta) => {
+    const list = selectedDirection === 'across' ? manualClues.across : manualClues.down;
+    if (!list || !list.length) return;
+    let idx = activeSlot ? list.findIndex(c => c.row === activeSlot.row && c.col === activeSlot.col) : -1;
+    idx = idx === -1 ? 0 : (idx + delta + list.length) % list.length;
+    const c = list[idx];
+    setSelectedCell({ row: c.row, col: c.col });
+  };
+
   if (!manualGrid) return null;
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-rise-in">
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-rise-in pb-72 lg:pb-0">
       <div className="xl:col-span-2 space-y-5">
         {/* ---- grid composer ---- */}
         <div className="panel panel-pad">
@@ -328,6 +344,17 @@ const ManualEditor = ({
           })}
         </div>
       </div>
+
+      <MobileSolveDock
+        clueNumber={activeClue?.number}
+        clueDirection={selectedDirection}
+        clueText={activeClue?.clue || (currentWord?.word ? currentWord.word.replace(/_/g, '·') : '')}
+        onPrev={() => goToAdjacentClue(-1)}
+        onNext={() => goToAdjacentClue(1)}
+        onToggleDir={() => setSelectedDirection(selectedDirection === 'across' ? 'down' : 'across')}
+        onKey={(ch) => onVirtualKey(ch)}
+        onBackspace={() => onVirtualKey('Backspace')}
+      />
     </div>
   );
 };

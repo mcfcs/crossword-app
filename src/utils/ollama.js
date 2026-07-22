@@ -21,17 +21,32 @@ const withTimeout = (ms) => {
 
 const trimBase = (url) => (url || '').replace(/\/+$/, '');
 
+// Warn if an https page tries to reach an http Ollama (browsers block this as
+// mixed content). Returns a message string, or null if fine.
+export const mixedContentWarning = (baseUrl) => {
+  try {
+    if (typeof window === 'undefined') return null;
+    if (window.location.protocol === 'https:' && /^http:\/\//i.test(baseUrl || '')) {
+      return 'This page is served over HTTPS but the Ollama URL is HTTP — browsers block that (mixed content). Serve the app over HTTP, or put Ollama behind HTTPS.';
+    }
+  } catch { /* ignore */ }
+  return null;
+};
+
 // Quick connectivity + model list. Throws on failure with a friendly message.
 export const listModels = async (baseUrl) => {
-  const t = withTimeout(5000);
+  const mc = mixedContentWarning(baseUrl);
+  if (mc) throw new Error(mc);
+  const t = withTimeout(8000);
   try {
     const res = await fetch(`${trimBase(baseUrl)}/api/tags`, { signal: t.signal });
-    if (!res.ok) throw new Error(`Server responded ${res.status}`);
+    if (!res.ok) throw new Error(`Server responded ${res.status}.`);
     const data = await res.json();
     return (data.models || []).map((m) => m.name);
   } catch (err) {
-    if (err.name === 'AbortError') throw new Error('Timed out reaching Ollama.');
-    throw new Error('Could not reach Ollama. Is it running, and is this origin allowed (OLLAMA_ORIGINS)?');
+    if (err.name === 'AbortError') throw new Error('Timed out reaching Ollama (check the URL / VPN).');
+    if (err.message && err.message.startsWith('Server responded')) throw err;
+    throw new Error('Could not reach Ollama. Check: (1) it is running; (2) the URL is right — over Tailscale use the host\'s Tailscale IP/name, not localhost; (3) it is bound to your network (OLLAMA_HOST=0.0.0.0:11434); (4) this page\'s origin is allowed (OLLAMA_ORIGINS).');
   } finally {
     t.done();
   }
