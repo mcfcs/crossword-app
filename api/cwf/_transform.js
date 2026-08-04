@@ -27,12 +27,30 @@ export function toKrosalita(game) {
     const row = [];
     for (let c = 0; c < cols; c++) {
       if (isBlack(grid2d[r][c])) { row.push('#'); continue; }
-      const l = letterOf(solution[r]?.[c]);
+      const l = letterOf(solution[r]?.[c]); // keep the FULL answer (rebus = multi-char)
       if (l.length > 1) hasRebus = true;
-      row.push(l ? l[0] : '');
+      row.push(l);
     }
     grid.push(row);
   }
+
+  // Circles / shades: crosswithfriends stores these as a 2D array, a flat
+  // boolean-per-cell array, or a flat list of cell indices. Normalise to
+  // ["r,c", ...].
+  const toCellList = (v) => {
+    const out = [];
+    if (!Array.isArray(v) || v.length === 0) return out;
+    if (Array.isArray(v[0])) {
+      v.forEach((rw, r) => rw.forEach((val, c) => { if (val) out.push(`${r},${c}`); }));
+    } else if (v.length === rows * cols && v.every((x) => x === 0 || x === 1 || x === true || x === false)) {
+      v.forEach((val, i) => { if (val) out.push(`${Math.floor(i / cols)},${i % cols}`); });
+    } else {
+      v.forEach((idx) => { const n = Number(idx); if (!Number.isNaN(n)) out.push(`${Math.floor(n / cols)},${n % cols}`); });
+    }
+    return out;
+  };
+  const circles = toCellList(game.circles);
+  const shades = toCellList(game.shades);
   const black = (r, c) => r < 0 || c < 0 || r >= rows || c >= cols || grid[r][c] === '#';
 
   // Re-derive numbering with the standard rule (matches the app's getCellNumber).
@@ -78,5 +96,7 @@ export function toKrosalita(game) {
     layout,
     grid,
     clues: { across, down },
+    circles,
+    shades,
   };
 }

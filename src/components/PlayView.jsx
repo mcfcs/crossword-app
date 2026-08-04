@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { ChevronDown, ChevronRight, Trophy } from './Icons';
 import MobileSolveDock from './MobileSolveDock';
+import { renderRich } from '../utils/richText';
 
 const PlayView = ({
   playGrid,
@@ -33,7 +34,11 @@ const PlayView = ({
   onCheckSquare = null,
   onCheckWord = null,
   onCheckPuzzle = null,
-  onClearWord = null
+  onClearWord = null,
+  circles = null,
+  shades = null,
+  rebusOn = false,
+  onToggleRebus = null
 }) => {
   const cluesContainerRef = useRef(null);
   const clueRefs = useRef({});
@@ -93,6 +98,11 @@ const PlayView = ({
               {onTogglePause && !playComplete && (
                 <button onClick={onTogglePause} className={`btn btn-sm ${paused ? 'btn-accent' : 'btn-ghost'}`}>
                   {paused ? 'Resume' : 'Pause'}
+                </button>
+              )}
+              {onToggleRebus && !playComplete && (
+                <button onClick={onToggleRebus} className={`btn btn-sm ${rebusOn ? 'btn-accent' : 'btn-ghost'}`} title="Rebus: type several letters into one square (Enter to exit)">
+                  Rebus{rebusOn ? ' · On' : ''}
                 </button>
               )}
               {playComplete && (
@@ -179,7 +189,11 @@ const PlayView = ({
                     const letterColor = isRevealed
                       ? 'text-revealed'
                       : isWrong ? 'text-wrong' : isCorrect ? 'text-correct' : 'text-ink';
-                    const remote = cell !== '#' ? remoteCells[`${r},${c}`] : null;
+                    const cellKey = `${r},${c}`;
+                    const remote = cell !== '#' ? remoteCells[cellKey] : null;
+                    const shaded = cell !== '#' && shades?.has(cellKey);
+                    const circled = cell !== '#' && circles?.has(cellKey);
+                    const isRebus = cell && cell.length > 1;
 
                     return (
                       <div
@@ -187,6 +201,8 @@ const PlayView = ({
                         onClick={() => handlePlayCellClick(r, c)}
                         className={`xw-cell ${cell === '#' ? '' : 'cursor-pointer'} ${fill}`}
                       >
+                        {shaded && <span className="absolute inset-0 pointer-events-none bg-ink/15" />}
+                        {circled && <span className="absolute inset-[9%] pointer-events-none rounded-full border border-ink/45" />}
                         {remote && (
                           <span
                             className="absolute inset-0 pointer-events-none"
@@ -201,7 +217,7 @@ const PlayView = ({
                           <span className="xw-num">{clueNumber}</span>
                         )}
                         {cell !== '#' && cell && (
-                          <span className={`xw-letter ${letterColor}`}>{cell}</span>
+                          <span className={`xw-letter ${letterColor} ${isRebus ? 'text-[0.42em] leading-[1.05] font-bold px-0.5 text-center' : ''}`}>{cell}</span>
                         )}
                       </div>
                     );
@@ -237,7 +253,7 @@ const PlayView = ({
                       ${isActive ? 'bg-accent text-white' : 'text-ink-soft hover:bg-ink/[0.05]'}`}
                   >
                     <span className={`font-mono font-bold tabular-nums w-6 shrink-0 text-right text-sm ${isActive ? 'text-white' : 'text-accent'}`}>{clue.number}</span>
-                    <span className="flex-1 text-[0.92rem]">{clue.clue || <span className="italic opacity-60">—</span>}</span>
+                    <span className="flex-1 text-[0.92rem]">{clue.clue ? renderRich(clue.clue) : <span className="italic opacity-60">—</span>}</span>
                   </button>
                 );
               })}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Delete } from './Icons';
+import { renderRich } from '../utils/richText';
 
 const ROW1 = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'];
 const ROW2 = ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'];
@@ -29,7 +30,7 @@ const MobileSolveDock = ({ clueNumber, clueDirection, clueText, onPrev, onNext, 
           <div className="eyebrow text-[0.58rem] leading-none mb-0.5">
             {clueNumber ? `${clueNumber} ${clueDirection === 'across' ? 'Across' : 'Down'}` : 'Tap a cell'}
           </div>
-          <div className="text-sm text-ink leading-snug truncate">{clueText || '—'}</div>
+          <div className="text-sm text-ink leading-snug truncate">{clueText ? renderRich(clueText) : '—'}</div>
         </button>
         <button onPointerDown={press(onNext)} className="kbd-key w-11 shrink-0" aria-label="Next clue">
           <ChevronRight size={20} />

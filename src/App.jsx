@@ -22,6 +22,7 @@ import { useAuth } from './hooks/useAuth';
 import { savePuzzle } from './lib/puzzles';
 import { sfx, isSoundOn, setSoundOn } from './utils/sound';
 import { burstConfetti } from './utils/confetti';
+import { renderRich } from './utils/richText';
 
 const CrosswordGenerator = () => {
   const [activeTab, setActiveTab] = useState('auto');
@@ -80,6 +81,9 @@ const CrosswordGenerator = () => {
   const [playTimer, setPlayTimer] = useState(0);
   const [playTimerActive, setPlayTimerActive] = useState(false);
   const [playPaused, setPlayPaused] = useState(false);
+  const [playCircles, setPlayCircles] = useState(new Set()); // circled cells (imported puzzles)
+  const [playShades, setPlayShades] = useState(new Set());   // shaded cells
+  const [rebusMode, setRebusMode] = useState(false);         // type multiple letters into one cell
   const [checkedCells, setCheckedCells] = useState(new Set()); // cells shown correctness via one-off Check
   const [usedAssist, setUsedAssist] = useState(false); // any reveal/check used → not a clean solve
   const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, confirmLabel, onConfirm }
@@ -920,7 +924,7 @@ const CrosswordGenerator = () => {
         setSelectedLayoutIndex(layoutIdx);
         
         // // Also set up play mode
-        startPlayMode(puzzleData.grid, importedClues);
+        startPlayMode(puzzleData.grid, importedClues, { circles: puzzleData.circles, shades: puzzleData.shades });
         
         setError('');
         setProgress(`Puzzle loaded! Click Play to start.`);
@@ -1359,14 +1363,17 @@ const CrosswordGenerator = () => {
 
   // ============ PLAY MODE FUNCTIONS ============
   
-  const startPlayMode = (sourceGrid, sourceClues) => {
+  const startPlayMode = (sourceGrid, sourceClues, extras = {}) => {
     if (!sourceGrid || !sourceClues) return;
-    
+
     // Create empty play grid (keep structure, clear letters)
-    const emptyGrid = sourceGrid.map(row => 
+    const emptyGrid = sourceGrid.map(row =>
       row.map(cell => cell === '#' ? '#' : '')
     );
-    
+
+    setPlayCircles(new Set(extras.circles || []));
+    setPlayShades(new Set(extras.shades || []));
+    setRebusMode(false);
     // Store the answers
     setPlayAnswers(sourceGrid);
     setPlayGrid(emptyGrid);
@@ -1436,6 +1443,29 @@ const CrosswordGenerator = () => {
     if (playPaused) return; // no input while paused
     if (!playSelectedCell || !playGrid) return;
     const { row, col } = playSelectedCell;
+
+    if (key === 'Enter') { setRebusMode(false); return; }
+
+    // Rebus entry: letters accumulate in the current cell, backspace trims it.
+    if (rebusMode) {
+      const cur = playGrid[row][col] && playGrid[row][col] !== '#' ? playGrid[row][col] : '';
+      if (key === 'Backspace') {
+        const newGrid = playGrid.map(r => [...r]);
+        newGrid[row][col] = cur.slice(0, -1);
+        setPlayGrid(newGrid);
+        return;
+      }
+      if (key.length === 1 && /[a-zA-Z]/.test(key)) {
+        const newGrid = playGrid.map(r => [...r]);
+        newGrid[row][col] = (cur + key.toUpperCase()).slice(0, 8);
+        setPlayGrid(newGrid);
+        sfx.key();
+        if (checkedCells.has(`${row},${col}`)) setCheckedCells(prev => { const n = new Set(prev); n.delete(`${row},${col}`); return n; });
+        checkPlayComplete(newGrid);
+        return;
+      }
+      // arrows fall through to normal navigation (and leave the rebus as typed)
+    }
 
     if (key === 'Backspace') {
       const newGrid = playGrid.map(r => [...r]);
@@ -1918,6 +1948,8 @@ const CrosswordGenerator = () => {
       setRevealedCells(new Set(s.play.revealedCells || []));
       setPlayTimer(s.play.playTimer || 0);
       setPlayComplete(!!s.play.playComplete);
+      setPlayCircles(new Set(s.play.circles || []));
+      setPlayShades(new Set(s.play.shades || []));
       resultShownRef.current = !!s.play.playComplete; // don't re-pop the result card on resume
       setPlayDirection(s.play.playDirection || 'across');
       setIsDailyMode(!!s.play.isDailyMode);
@@ -1946,9 +1978,11 @@ const CrosswordGenerator = () => {
         playComplete,
         playDirection,
         isDailyMode,
+        circles: [...playCircles],
+        shades: [...playShades],
       } : null,
     });
-  }, [activeTab, selectedLayoutIndex, difficultyChoice, grid, clues, latestGrid, latestClues, playAnswers, playGrid, playClues, revealedCells, playTimer, playComplete, playDirection, isDailyMode]);
+  }, [activeTab, selectedLayoutIndex, difficultyChoice, grid, clues, latestGrid, latestClues, playAnswers, playGrid, playClues, revealedCells, playTimer, playComplete, playDirection, isDailyMode, playCircles, playShades]);
 
   const layoutIndexForTab = Math.min(activeTab === 'create' ? currentLayoutIndex : selectedLayoutIndex, Math.max(layouts.length - 1, 0));
 
@@ -2295,7 +2329,7 @@ const CrosswordGenerator = () => {
 
         {activeTab === 'browse' && (
           <BrowseView
-            onPlay={(puzzle) => startPlayMode(puzzle.grid, puzzle.clues)}
+            onPlay={(puzzle) => startPlayMode(puzzle.grid, puzzle.clues, { circles: puzzle.circles, shades: puzzle.shades })}
             onHost={(puzzle) => { setMpSeedPuzzle(puzzle); setActiveTab('multiplayer'); }}
           />
         )}
@@ -2353,11 +2387,11 @@ const CrosswordGenerator = () => {
               <h2 className="font-display text-2xl font-semibold text-ink mb-4">Clues</h2>
               <div className="mb-6">
                 <h3 className="eyebrow text-ink flex items-center gap-1.5 border-b border-ink/15 pb-1.5 mb-3"><ChevronRight size={13} />Across</h3>
-                {clues.across.map(clue => <div key={`across-${clue.number}`} className="mb-2.5 text-sm text-ink-soft leading-snug"><span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{clue.clue}</div>)}
+                {clues.across.map(clue => <div key={`across-${clue.number}`} className="mb-2.5 text-sm text-ink-soft leading-snug"><span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{renderRich(clue.clue)}</div>)}
               </div>
               <div>
                 <h3 className="eyebrow text-ink flex items-center gap-1.5 border-b border-ink/15 pb-1.5 mb-3"><ChevronDown size={13} />Down</h3>
-                {clues.down.map(clue => <div key={`down-${clue.number}`} className="mb-2.5 text-sm text-ink-soft leading-snug"><span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{clue.clue}</div>)}
+                {clues.down.map(clue => <div key={`down-${clue.number}`} className="mb-2.5 text-sm text-ink-soft leading-snug"><span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{renderRich(clue.clue)}</div>)}
               </div>
             </div>
           </div>
@@ -2463,6 +2497,10 @@ const CrosswordGenerator = () => {
             onCheckWord={checkWord}
             onCheckPuzzle={checkPuzzle}
             onClearWord={clearCurrentWord}
+            circles={playCircles}
+            shades={playShades}
+            rebusOn={rebusMode}
+            onToggleRebus={() => setRebusMode(v => !v)}
           />
         )}
         

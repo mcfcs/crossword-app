@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { PenTool, Sparkles, X, Check, ChevronRight, ChevronDown, Zap } from './Icons';
 import MobileSolveDock from './MobileSolveDock';
+import { renderRich } from '../utils/richText';
 
 const ManualEditor = ({
   manualGrid,
@@ -223,7 +224,7 @@ const ManualEditor = ({
             {getClueForCurrentSlot() && (
               <div className="mt-4 bg-paper-sunken rounded-sm p-4 border border-ink/12 space-y-1.5">
                 <div className="eyebrow">Current Clue</div>
-                <div className="text-ink">{getClueForCurrentSlot()?.clue || <span className="text-ink-faint italic">No clue set</span>}</div>
+                <div className="text-ink">{getClueForCurrentSlot()?.clue ? renderRich(getClueForCurrentSlot().clue) : <span className="text-ink-faint italic">No clue set</span>}</div>
                 {!tagalogMode && getClueForCurrentSlot()?.clue && (() => {
                   const slot = getCurrentWord()?.slot;
                   let filledWord = '';
@@ -254,6 +255,7 @@ const ManualEditor = ({
                   <h3 className="font-display text-2xl font-semibold text-ink mb-1">Edit Clue</h3>
                   <div className="eyebrow mb-3">For <span className="font-mono text-accent">{currentWord.word}</span></div>
                   <textarea value={clueInput} onChange={(e) => setClueInput(e.target.value)} placeholder="Enter your clue…" className="field" rows={3} autoFocus />
+                  <div className="text-[11px] text-ink-faint mt-1.5">Formatting: <code className="chip">**bold**</code> <code className="chip">*italic*</code> · accents & symbols (é, ñ, —, ♪) can be typed directly.</div>
                   <div className="flex gap-3 mt-4">
                     <button onClick={() => updateClue(clueInput)} className="btn btn-accent flex-1"><Check size={16} />Save</button>
                     <button onClick={() => { setEditingClue(null); setClueInput(''); }} className="btn btn-ghost flex-1"><X size={16} />Cancel</button>
@@ -312,7 +314,7 @@ const ManualEditor = ({
             const isActive = selectedCell && selectedDirection === 'across' && clue.row === currentWord.slot?.row && clue.col === currentWord.slot?.col;
             return <div key={`across-${clue.number}`} ref={node => { if (node) clueRefs.current[clueId] = node; }} className={`mb-2.5 text-sm pl-3 border-l-2 transition cursor-pointer py-1 ${isActive ? 'border-accent bg-accent/8' : 'border-ink/15 hover:bg-ink/[0.04]'}`} onClick={() => { setSelectedCell({ row: clue.row, col: clue.col }); setSelectedDirection('across'); }}>
               <div className="flex items-center gap-2"><span className="font-mono font-semibold text-accent">{clue.number}</span><span className="font-mono text-ink-faint text-xs tracking-wide">{word}</span></div>
-              <div className="text-ink-soft mt-0.5 leading-snug">{clue.clue || <span className="text-ink-faint italic">Click to add clue</span>}</div>
+              <div className="text-ink-soft mt-0.5 leading-snug">{clue.clue ? renderRich(clue.clue) : <span className="text-ink-faint italic">Click to add clue</span>}</div>
               {dateInfo && (
                 <div className="text-[11px] text-ink-faint mt-0.5 space-y-0.5">
                   <div>Date: <span className="text-gold font-mono">{dateInfo.formatted}</span></div>
@@ -333,7 +335,7 @@ const ManualEditor = ({
             const isActive = selectedCell && selectedDirection === 'down' && clue.row === currentWord.slot?.row && clue.col === currentWord.slot?.col;
             return <div key={`down-${clue.number}`} ref={node => { if (node) clueRefs.current[clueId] = node; }} className={`mb-2.5 text-sm pl-3 border-l-2 transition cursor-pointer py-1 ${isActive ? 'border-accent bg-accent/8' : 'border-ink/15 hover:bg-ink/[0.04]'}`} onClick={() => { setSelectedCell({ row: clue.row, col: clue.col }); setSelectedDirection('down'); }}>
               <div className="flex items-center gap-2"><span className="font-mono font-semibold text-accent">{clue.number}</span><span className="font-mono text-ink-faint text-xs tracking-wide">{word}</span></div>
-              <div className="text-ink-soft mt-0.5 leading-snug">{clue.clue || <span className="text-ink-faint italic">Click to add clue</span>}</div>
+              <div className="text-ink-soft mt-0.5 leading-snug">{clue.clue ? renderRich(clue.clue) : <span className="text-ink-faint italic">Click to add clue</span>}</div>
               {dateInfo && (
                 <div className="text-[11px] text-ink-faint mt-0.5 space-y-0.5">
                   <div>Date: <span className="text-gold font-mono">{dateInfo.formatted}</span></div>

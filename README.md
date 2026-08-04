@@ -1,123 +1,125 @@
-# Krosalita
+# Krosalita — Crossword Studio
 
-Krosalita is a React + Vite app for generating, editing, and playing crossword puzzles from CSV word lists.
+Krosalita is a full-stack crossword studio: **generate** puzzles from a word list, **build** them by hand, **import** real published puzzles from crosswithfriends, and **play** them solo or with friends in real time — as a clean, installable web app. It started as a client-side generator and grew into a React + Vite front end backed by Vercel serverless functions and Supabase (Postgres · Auth · Realtime), with an optional local‑LLM clue assistant.
 
-## Features
+> Clean, NYT / LA Times–style solving UI · mobile‑first & installable (PWA) · real‑time multiplayer · zero paid dependencies to run locally.
 
-- **Generate mode**: build a crossword automatically from a word/clue dictionary
-- **Create mode**: manually edit a grid, clues, and then auto-fill remaining slots
-- **Play mode**: solve generated/imported puzzles with timer, auto-check, and reveal tools
-- **Mobile-first solving**: NYT/LA Times-style clean UI, a grid that fits any screen width,
-  an on-screen keyboard, and a sticky current-clue bar (‹ ›) — great on a phone
-- **Installable app (PWA)**: "Add to Home Screen" for a standalone, offline-capable app
-  (service worker + web manifest + icons). Tap **Install App** in the header when offered
-- **Auto-save & resume**: an in-progress solve is saved locally and restored on reload
-- **Today's Puzzle + streaks**: a deterministic daily puzzle with a solve-streak counter
-- **AI clue assist (local Ollama)**: draft clues for a filled word using a model you host
-  locally — nothing leaves your machine (see below)
-- **Layout tools**: choose built-in layouts or create/edit custom symmetric layouts
-- **Required words**: force specific words into puzzle generation (anchor or opportunistic)
-- **Difficulty filters**: generate by target difficulty band (`easy` → `difficult`)
-- **Dictionary manager**: add/edit/delete entries and export dictionary CSV
-- **Import / export / share**:
-  - export & import puzzle JSON (generate/create/play workflows)
-  - download puzzle as an image with clue lists (and a clean print stylesheet)
-  - **Share** a blank puzzle image via the Web Share API (falls back to a PNG download)
-- **Tagalog mode**: switches to Tagalog crossword dataset (if available in `public/`)
+---
 
-## Install as an app
+## Highlights
 
-Krosalita is a PWA. Serve the production build over HTTPS (or `http://localhost`) and:
+**Create & generate**
+- **Generate mode** — build a full crossword automatically from a word/clue dictionary (wave‑function‑collapse solver in a Web Worker so the UI stays smooth).
+- **Create mode** — hand‑edit a grid + clues, auto‑fill the rest, force in required words, and target a difficulty band.
+- **Rich clues** — `**bold**` / `*italic*` markup and symbols/accents render across play, create, mobile, and export.
+- **AI clue assist (local, private)** — draft clues with a self‑hosted [Ollama](https://ollama.com) model; nothing leaves your machine.
 
-- **Android / Chrome / Edge**: use the **Install App** button in the header, or the browser's
-  "Install app" menu item.
-- **iOS / Safari**: Share → **Add to Home Screen**.
+**Play**
+- **Clean solving UI** — NYT / LA Times palette (blue active word · yellow cell), a grid that fits any screen width, and legible correct/wrong/revealed states.
+- **Mobile‑first** — on‑screen keyboard + sticky current‑clue bar; installable **PWA** ("Add to Home Screen") that works offline and resumes your last solve.
+- **Solving tools** — pause the clock, one‑off **Check** cell/word/board (with confirmation), **Reveal**, a **smart cursor** (skips filled squares, jumps to the next empty clue), **rebus** entry, and a **clean‑solve** badge + confetti result card.
+- **Circles & shades** — themed‑puzzle markings are preserved and rendered.
+- **Today's Puzzle + streaks**, sound effects, share‑as‑image, and a print stylesheet.
 
-Once installed it launches full-screen, works offline, and resumes your last solve.
+**Import from crosswithfriends**
+- Search the crosswithfriends catalogue and play any puzzle right in Krosalita — a serverless "middle‑man" that reproduces the site's Socket.IO fetch and normalises it into Krosalita's format (handy when the site misbehaves outside iOS).
 
-## Local AI clue assist (Ollama)
+**Multiplayer**
+- **5‑digit lobby codes** and one‑tap **invite links** (auto‑join). Co‑solve any puzzle (generated, imported, or Tagalog) with live cursors, everyone's highlights shown in their colour, and a shared board.
+- **Host controls** (auto‑check, reveal, check board, game mode) and two modes: cooperative solve or **points** (first correct letter scores).
 
-The app can call a locally-hosted [Ollama](https://ollama.com) server to draft crossword
-clues while you build in **Create** mode. Everything runs on your machine.
+**Profiles**
+- Guest‑first: play/host/join with just a display name. Optional email + Google sign‑in to **save your created puzzles** and history across devices.
 
-1. Install a model, e.g. `ollama pull llama3.1`.
-2. In the app header, open **AI** and enable it. Set the server URL
-   (default `http://localhost:11434`) and pick a model, then **Test connection**.
-3. In Create mode, select a fully-filled word and press **AI Clue** to get suggestions.
-
-### Connection troubleshooting (incl. Tailscale)
-
-The Settings dialog shows the exact origin to allow. In general, on the machine running Ollama:
-
-- **Allow the web origin (CORS):** `OLLAMA_ORIGINS=http://localhost:7891` (or `*` while testing).
-- **Expose it beyond localhost** (required to reach it from a phone or over Tailscale):
-  `OLLAMA_HOST=0.0.0.0:11434`.
-- Restart Ollama with those env vars set (they must be set for the `ollama serve` process).
-
-**Over Tailscale:** if the browser and Ollama are on different devices, `localhost` points at the
-*browser's* device. Set the app's Ollama URL to the **host's Tailscale address**, e.g.
-`http://100.x.x.x:11434` (or its MagicDNS name), and include that same origin in `OLLAMA_ORIGINS`.
-
-**Mixed content:** a site served over HTTPS cannot call an `http://` Ollama. Use the app over
-HTTP (the dev/preview server is HTTP) or put Ollama behind HTTPS.
+---
 
 ## Tech stack
 
-- React 19
-- Vite 7
-- Tailwind CSS
-- ESLint
+- **Front end:** React 19, Vite 7, Tailwind CSS (no component library — a small hand‑built design system).
+- **Solver:** custom wave‑function‑collapse fill running in a Web Worker.
+- **Back end:** Vercel serverless (Node) functions for the crosswithfriends proxy (`socket.io-client`), and **Supabase** for Auth, Postgres, and Realtime (multiplayer + saved puzzles).
+- **AI:** optional local Ollama over HTTP(S) — configurable, off by default.
+- **PWA:** web manifest + service worker + generated icons.
+
+### Architecture
+
+```
+Browser SPA (Vite/React, PWA)
+   ├── /api/cwf/*   → Vercel serverless → crosswithfriends REST + downforacross Socket.IO
+   ├── Supabase     → Auth · Postgres (games, players, profiles, puzzles) · Realtime
+   └── Ollama       → local model over HTTP(S) (optional, private)
+```
+
+---
 
 ## Getting started
 
-From the repository root:
-
 ```bash
 npm ci
-npm run dev
+npm run dev            # Vite dev server on http://localhost:7891
+# or, to also run the /api serverless functions locally:
+npx vercel dev
 ```
 
-Then open the local Vite URL (`http://localhost:7891`). The dev/preview server also
-listens on your LAN / Tailscale address, so you can open it from a phone on the same tailnet.
+The dev/preview server also binds to your LAN / Tailscale address, so you can open it on a phone on the same network.
 
-## Available scripts
+### Scripts
 
 ```bash
-npm run dev      # start dev server
-npm run build    # production build
-npm run preview  # preview production build locally
-npm run lint     # run ESLint
+npm run dev       # dev server (7891)
+npm run build     # production build
+npm run preview   # preview the production build
+npm run lint      # ESLint
 ```
 
-## CSV dictionary format
+### Environment (optional — for multiplayer & profiles)
 
-Expected columns:
+Copy `.env.example` → `.env` and add a [Supabase](https://supabase.com) project's keys:
+
+```
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+```
+
+Apply `supabase/migrations/0001_init.sql` in the Supabase SQL editor. Without these, the app still runs fully as a guest (generate / create / import / solo play); multiplayer and saved puzzles simply prompt you to configure Supabase. On the deployed site, set the same variables in Vercel → Project → Environment Variables and add your domain to Supabase → Auth → URL Configuration.
+
+### AI clue assist (Ollama)
+
+1. `ollama pull llama3.1`
+2. In the header open **AI**, enable it, set the server URL (default `http://localhost:11434`), pick a model, **Test connection**.
+3. In Create mode, select a filled word → **AI Clue**.
+
+Reaching Ollama from another device / over Tailscale: run it with `OLLAMA_HOST=0.0.0.0:11434` and `OLLAMA_ORIGINS=<your app origin>`, and point the URL at the host's Tailscale address (the Settings dialog shows the exact origin to allow). For a deployed HTTPS site, expose Ollama over HTTPS via `tailscale serve`.
+
+---
+
+## CSV dictionary format
 
 ```csv
 Date,Word,Clue,Difficulty
 2026-01-01,APPLE,Common red fruit,EASY
 ```
 
-Notes:
-
-- Minimum required columns are `Date,Word,Clue`
-- `Difficulty` is optional but used by difficulty filtering/scoring
-- Words are normalized to uppercase A–Z characters
-
-## Optional default datasets
-
-If present in `public/`, the app auto-loads:
-
-- `crosswords.csv` (default mode)
-- `tagalogcrosswordfinal_test.csv` (Tagalog mode)
+`Date,Word,Clue` are required; `Difficulty` is optional (used for filtering/scoring). If present in `public/`, `crosswords.csv` (default) and `tagalogcrosswordfinal_test.csv` (Tagalog mode) auto‑load.
 
 ## Project structure
 
 ```text
+api/cwf/            # Vercel serverless: crosswithfriends search + puzzle fetch/transform
 src/
-  App.jsx                  # main app state and generation logic
-  components/              # UI views/modals (play, manual editor, layouts, dictionary)
-  data/layouts.js          # built-in crossword layouts
-  utils/crosswordUtils.js  # CSV parsing, slot detection, numbering, layout stats
-tagalog-scraper/           # helper scripts/data for Tagalog word list prep
+  App.jsx           # app state, generation, play logic
+  components/       # views & modals (Play, Create, Browse, Multiplayer, Auth, …)
+  multiplayer/      # Supabase Realtime client + state-adapter hook
+  lib/              # supabase client, api client, saved-puzzles
+  utils/            # solver, grid utils, sound, confetti, rich text, storage
+  worker/           # Web Worker solver
+supabase/migrations # Postgres schema + RLS
 ```
+
+---
+
+## Notes
+
+Puzzle imports are for personal, on‑demand use; published crosswords are the copyright of their respective publishers. Krosalita doesn't cache or redistribute them.
+
+*Built with React, Vite, Tailwind, Supabase, and Vercel.*
