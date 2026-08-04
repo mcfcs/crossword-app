@@ -4,6 +4,8 @@ import BrowseView from './components/BrowseView';
 import MultiplayerView from './components/MultiplayerView';
 import AuthModal from './components/AuthModal';
 import MyPuzzlesView from './components/MyPuzzlesView';
+import ConfirmModal from './components/ConfirmModal';
+import ResultModal from './components/ResultModal';
 import DictionaryModal from './components/DictionaryModal';
 import LayoutEditorModal from './components/LayoutEditorModal';
 import LayoutSelector from './components/LayoutSelector';
@@ -19,6 +21,7 @@ import { getOllamaConfig, saveOllamaConfig, generateClues } from './utils/ollama
 import { useAuth } from './hooks/useAuth';
 import { savePuzzle } from './lib/puzzles';
 import { sfx, isSoundOn, setSoundOn } from './utils/sound';
+import { burstConfetti } from './utils/confetti';
 
 const CrosswordGenerator = () => {
   const [activeTab, setActiveTab] = useState('auto');
@@ -77,6 +80,11 @@ const CrosswordGenerator = () => {
   const [playTimer, setPlayTimer] = useState(0);
   const [playTimerActive, setPlayTimerActive] = useState(false);
   const [playPaused, setPlayPaused] = useState(false);
+  const [checkedCells, setCheckedCells] = useState(new Set()); // cells shown correctness via one-off Check
+  const [usedAssist, setUsedAssist] = useState(false); // any reveal/check used → not a clean solve
+  const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, confirmLabel, onConfirm }
+  const [showResult, setShowResult] = useState(false);
+  const [cleanSolve, setCleanSolve] = useState(false);
   const [playAutoCheck, setPlayAutoCheck] = useState(false);
   const [revealedCells, setRevealedCells] = useState(new Set());
   
@@ -114,6 +122,7 @@ const CrosswordGenerator = () => {
   const playTimerRef = useRef(null);
   const workerRef = useRef(null);
   const restoredRef = useRef(false);
+  const resultShownRef = useRef(false);
 
   // =========== LOGGING ============
   // Helper to log debug messages
@@ -1368,6 +1377,11 @@ const CrosswordGenerator = () => {
     setRevealedCells(new Set());
     setPlayAutoCheck(false); // start every puzzle with auto-check off
     setPlayPaused(false);
+    setCheckedCells(new Set());
+    setUsedAssist(false);
+    setShowResult(false);
+    setCleanSolve(false);
+    resultShownRef.current = false;
     setPlayTimer(0);
     setPlayTimerActive(true);
     setActiveTab('play');
@@ -1447,12 +1461,39 @@ const CrosswordGenerator = () => {
       newGrid[row][col] = key.toUpperCase();
       setPlayGrid(newGrid);
       sfx.key();
-      // advance to the next cell in the current word
-      if (playDirection === 'across' && col < playGrid[0].length - 1 && playGrid[row][col + 1] !== '#') {
-        setPlaySelectedCell({ row, col: col + 1 });
-      } else if (playDirection === 'down' && row < playGrid.length - 1 && playGrid[row + 1][col] !== '#') {
-        setPlaySelectedCell({ row: row + 1, col });
+      // a re-typed cell needs re-checking → drop its "checked" mark
+      if (checkedCells.has(`${row},${col}`)) {
+        setCheckedCells(prev => { const n = new Set(prev); n.delete(`${row},${col}`); return n; });
       }
+      // Smart cursor: next empty square in the word, else first empty of the next clue.
+      const slot = getPlayCurrentSlot();
+      let target = null;
+      if (slot) {
+        const cellAt = (i) => (slot.direction === 'across' ? { row: slot.row, col: slot.col + i } : { row: slot.row + i, col: slot.col });
+        const curIdx = slot.direction === 'across' ? col - slot.col : row - slot.row;
+        for (let i = curIdx + 1; i < slot.length && !target; i++) { const cc = cellAt(i); if (!newGrid[cc.row][cc.col]) target = cc; }
+        for (let i = 0; i < curIdx && !target; i++) { const cc = cellAt(i); if (!newGrid[cc.row][cc.col]) target = cc; }
+        if (!target) {
+          // word is full → jump to the first empty square of the next clue
+          const layout = newGrid.map(rw => rw.map(x => (x === '#' ? '#' : '.')));
+          const all = findSlots(layout);
+          const byPos = (a, b) => a.row - b.row || a.col - b.col;
+          const order = [
+            ...all.filter(s => s.direction === playDirection).sort(byPos),
+            ...all.filter(s => s.direction !== playDirection).sort(byPos),
+          ];
+          const firstEmpty = (s) => { for (let i = 0; i < s.length; i++) { const r = s.direction === 'across' ? s.row : s.row + i; const c = s.direction === 'across' ? s.col + i : s.col; if (!newGrid[r][c]) return { row: r, col: c }; } return null; };
+          const startI = order.findIndex(s => s.direction === slot.direction && s.row === slot.row && s.col === slot.col);
+          for (let k = 1; k <= order.length && !target; k++) {
+            const s = order[(startI + k) % order.length];
+            const cell = firstEmpty(s);
+            if (cell) { target = cell; if (s.direction !== playDirection) setPlayDirection(s.direction); }
+          }
+        }
+      }
+      if (target) setPlaySelectedCell(target);
+      else if (playDirection === 'across' && col < newGrid[0].length - 1 && newGrid[row][col + 1] !== '#') setPlaySelectedCell({ row, col: col + 1 });
+      else if (playDirection === 'down' && row < newGrid.length - 1 && newGrid[row + 1][col] !== '#') setPlaySelectedCell({ row: row + 1, col });
       // Check completion (even if auto-check is off, so the timer stops)
       checkPlayComplete(newGrid);
       return;
@@ -1514,39 +1555,101 @@ const CrosswordGenerator = () => {
   const revealCell = () => {
     if (!playSelectedCell || !playAnswers) return;
     const { row, col } = playSelectedCell;
-    
+
     const newGrid = playGrid.map(r => [...r]);
     newGrid[row][col] = playAnswers[row][col];
     setPlayGrid(newGrid);
-    
+
     setRevealedCells(prev => new Set([...prev, `${row},${col}`]));
+    setUsedAssist(true);
     checkPlayComplete(newGrid);
   };
-  
+
   const revealWord = () => {
     const slot = getPlayCurrentSlot();
     if (!slot || !playAnswers) return;
-    
+
     const newGrid = playGrid.map(r => [...r]);
     const newRevealed = new Set(revealedCells);
-    
+
     for (let i = 0; i < slot.length; i++) {
       const r = slot.direction === 'across' ? slot.row : slot.row + i;
       const c = slot.direction === 'across' ? slot.col + i : slot.col;
       newGrid[r][c] = playAnswers[r][c];
       newRevealed.add(`${r},${c}`);
     }
-    
+
     setPlayGrid(newGrid);
     setRevealedCells(newRevealed);
+    setUsedAssist(true);
     checkPlayComplete(newGrid);
   };
-  
-  const revealAll = () => {
+
+  const doRevealAll = () => {
     if (!playAnswers) return;
     setPlayGrid(playAnswers.map(r => [...r]));
+    setUsedAssist(true);
     setPlayComplete(true);
     setPlayTimerActive(false);
+  };
+  const revealAll = () => setConfirmDialog({
+    title: 'Reveal the whole puzzle?',
+    message: 'This fills in every answer and ends the solve. This can’t be undone.',
+    confirmLabel: 'Reveal all',
+    danger: true,
+    onConfirm: () => { setConfirmDialog(null); doRevealAll(); },
+  });
+
+  // ---- One-off "Check" actions (separate from always-on auto-check) ----
+  const markChecked = (cells) => {
+    if (!cells.length) return;
+    setCheckedCells(prev => { const n = new Set(prev); cells.forEach(k => n.add(k)); return n; });
+    setUsedAssist(true);
+  };
+  const checkSquare = () => {
+    if (!playSelectedCell || playGrid?.[playSelectedCell.row]?.[playSelectedCell.col] === '#') return;
+    markChecked([`${playSelectedCell.row},${playSelectedCell.col}`]);
+  };
+  const checkWord = () => {
+    const slot = getPlayCurrentSlot();
+    if (!slot) return;
+    const cells = [];
+    for (let i = 0; i < slot.length; i++) {
+      const r = slot.direction === 'across' ? slot.row : slot.row + i;
+      const c = slot.direction === 'across' ? slot.col + i : slot.col;
+      cells.push(`${r},${c}`);
+    }
+    markChecked(cells);
+  };
+  const doCheckPuzzle = () => {
+    if (!playGrid) return;
+    const cells = [];
+    for (let r = 0; r < playGrid.length; r++) {
+      for (let c = 0; c < playGrid[r].length; c++) {
+        if (playGrid[r][c] && playGrid[r][c] !== '#') cells.push(`${r},${c}`);
+      }
+    }
+    markChecked(cells);
+  };
+  const checkPuzzle = () => setConfirmDialog({
+    title: 'Check the whole board?',
+    message: 'This marks every filled square as correct or wrong. It counts as using help.',
+    confirmLabel: 'Check board',
+    onConfirm: () => { setConfirmDialog(null); doCheckPuzzle(); },
+  });
+
+  const clearCurrentWord = () => {
+    const slot = getPlayCurrentSlot();
+    if (!slot || !playGrid) return;
+    const newGrid = playGrid.map(r => [...r]);
+    const dropped = new Set(checkedCells);
+    for (let i = 0; i < slot.length; i++) {
+      const r = slot.direction === 'across' ? slot.row : slot.row + i;
+      const c = slot.direction === 'across' ? slot.col + i : slot.col;
+      if (!revealedCells.has(`${r},${c}`)) { newGrid[r][c] = ''; dropped.delete(`${r},${c}`); }
+    }
+    setPlayGrid(newGrid);
+    setCheckedCells(dropped);
   };
   
   const formatTime = (seconds) => {
@@ -1784,9 +1887,17 @@ const CrosswordGenerator = () => {
     }
   }, [playComplete, isDailyMode]);
 
-  // Victory chime on completion.
+  // Celebrate on completion (once per solve): chime, confetti, result card.
   React.useEffect(() => {
-    if (playComplete) sfx.win();
+    if (playComplete && !resultShownRef.current) {
+      resultShownRef.current = true;
+      setCleanSolve(!usedAssist);
+      sfx.win();
+      burstConfetti();
+      setShowResult(true);
+    }
+    if (!playComplete) resultShownRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playComplete]);
 
   // ============ AUTO-SAVE & RESUME ============
@@ -1807,6 +1918,7 @@ const CrosswordGenerator = () => {
       setRevealedCells(new Set(s.play.revealedCells || []));
       setPlayTimer(s.play.playTimer || 0);
       setPlayComplete(!!s.play.playComplete);
+      resultShownRef.current = !!s.play.playComplete; // don't re-pop the result card on resume
       setPlayDirection(s.play.playDirection || 'across');
       setIsDailyMode(!!s.play.isDailyMode);
       setPlayTimerActive(!s.play.playComplete);
@@ -2346,6 +2458,11 @@ const CrosswordGenerator = () => {
             goToAdjacentClue={goToAdjacentClue}
             paused={playPaused}
             onTogglePause={togglePlayPause}
+            checkedCells={checkedCells}
+            onCheckSquare={checkSquare}
+            onCheckWord={checkWord}
+            onCheckPuzzle={checkPuzzle}
+            onClearWord={clearCurrentWord}
           />
         )}
         
@@ -2410,6 +2527,26 @@ const CrosswordGenerator = () => {
       />
 
       <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} auth={auth} />
+
+      <ConfirmModal
+        open={!!confirmDialog}
+        title={confirmDialog?.title}
+        message={confirmDialog?.message}
+        confirmLabel={confirmDialog?.confirmLabel}
+        danger={confirmDialog?.danger}
+        onConfirm={confirmDialog?.onConfirm}
+        onCancel={() => setConfirmDialog(null)}
+      />
+
+      <ResultModal
+        open={showResult}
+        timeText={formatTime(playTimer)}
+        clean={cleanSolve}
+        difficulty={difficultyInfo?.label}
+        onClose={() => setShowResult(false)}
+        onShare={sharePuzzle}
+        onPlayAgain={words.length ? () => { setShowResult(false); generatePuzzle(words, selectedLayoutIndex, true); } : null}
+      />
 
       <DictionaryModal
         isOpen={showDictionary}

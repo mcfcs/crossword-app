@@ -28,7 +28,12 @@ const PlayView = ({
   canControl = true,
   remoteCells = {},
   paused = false,
-  onTogglePause = null
+  onTogglePause = null,
+  checkedCells = null,
+  onCheckSquare = null,
+  onCheckWord = null,
+  onCheckPuzzle = null,
+  onClearWord = null
 }) => {
   const cluesContainerRef = useRef(null);
   const clueRefs = useRef({});
@@ -114,6 +119,15 @@ const PlayView = ({
                   <button onClick={revealAll} className="btn btn-sm btn-accent">Reveal All</button>
                 </>
               )}
+              {onCheckSquare && (
+                <>
+                  <span className="w-px h-5 bg-line mx-0.5 hidden sm:block" />
+                  <button onClick={onCheckSquare} className="btn btn-sm btn-ghost">Check Cell</button>
+                  <button onClick={onCheckWord} className="btn btn-sm btn-ghost">Check Word</button>
+                  <button onClick={onCheckPuzzle} className="btn btn-sm btn-ghost">Check All</button>
+                  <button onClick={onClearWord} className="btn btn-sm btn-ghost">Clear Word</button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -135,7 +149,8 @@ const PlayView = ({
                     const isSelected = playSelectedCell?.row === r && playSelectedCell?.col === c;
                     const isInWord = inActiveWord(r, c);
                     const isRevealed = revealedCells.has(`${r},${c}`);
-                    const showCorrectness = (playAutoCheck || playComplete) && !!playAnswers;
+                    const isChecked = checkedCells?.has(`${r},${c}`);
+                    const showCorrectness = (playAutoCheck || playComplete || isChecked) && !!playAnswers;
                     const isCorrect = showCorrectness && cell === playAnswers[r][c] && cell !== '';
                     const isWrong = showCorrectness && cell !== '' && cell !== playAnswers[r][c];
                     const clueNumber = getNumberForCell(r, c, playClues);
