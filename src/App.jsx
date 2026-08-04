@@ -1,5 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Languages, Settings, Flame, DownloadCloud, Zap, Share } from './components/Icons';
+import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Languages, Settings, Flame, DownloadCloud, Zap, Share, Search } from './components/Icons';
+import BrowseView from './components/BrowseView';
+import MultiplayerView from './components/MultiplayerView';
+import AuthModal from './components/AuthModal';
+import MyPuzzlesView from './components/MyPuzzlesView';
 import DictionaryModal from './components/DictionaryModal';
 import LayoutEditorModal from './components/LayoutEditorModal';
 import LayoutSelector from './components/LayoutSelector';
@@ -12,6 +16,8 @@ import { parseCSV, findSlots, assignNumbers, getWordFromGrid, getLayoutStats, ge
 import { loadJSON, saveJSON } from './utils/storage';
 import { todayKey, seedFromString, makeRng, seededShuffle, getStreak, recordDailySolve, isDailySolved } from './utils/daily';
 import { getOllamaConfig, saveOllamaConfig, generateClues } from './utils/ollama';
+import { useAuth } from './hooks/useAuth';
+import { savePuzzle } from './lib/puzzles';
 
 const CrosswordGenerator = () => {
   const [activeTab, setActiveTab] = useState('auto');
@@ -69,7 +75,7 @@ const CrosswordGenerator = () => {
   const [playComplete, setPlayComplete] = useState(false);
   const [playTimer, setPlayTimer] = useState(0);
   const [playTimerActive, setPlayTimerActive] = useState(false);
-  const [playAutoCheck, setPlayAutoCheck] = useState(true);
+  const [playAutoCheck, setPlayAutoCheck] = useState(false);
   const [revealedCells, setRevealedCells] = useState(new Set());
   
   // Dictionary state
@@ -87,6 +93,9 @@ const CrosswordGenerator = () => {
   const [installPromptEvent, setInstallPromptEvent] = useState(null);
   const [isDailyMode, setIsDailyMode] = useState(false);
   const [streak, setStreak] = useState(() => getStreak());
+  const [mpSeedPuzzle, setMpSeedPuzzle] = useState(null); // puzzle handed from Browse to host
+  const [showAuth, setShowAuth] = useState(false);
+  const auth = useAuth();
 
   const puzzleFileInputRef = useRef(null);
   const playTimerRef = useRef(null);
@@ -1344,6 +1353,7 @@ const CrosswordGenerator = () => {
     setPlayDirection('across');
     setPlayComplete(false);
     setRevealedCells(new Set());
+    setPlayAutoCheck(false); // start every puzzle with auto-check off
     setPlayTimer(0);
     setPlayTimerActive(true);
     setActiveTab('play');
@@ -1790,8 +1800,51 @@ const CrosswordGenerator = () => {
 
   const layoutIndexForTab = Math.min(activeTab === 'create' ? currentLayoutIndex : selectedLayoutIndex, Math.max(layouts.length - 1, 0));
 
+  // Best complete puzzle to host in multiplayer (a full solution grid + clues).
+  const hostablePuzzle = playAnswers
+    ? { grid: playAnswers, clues: playClues, meta: { title: 'Current puzzle' } }
+    : grid
+      ? { grid, clues, meta: { title: 'Generated puzzle' } }
+      : latestGrid
+        ? { grid: latestGrid, clues: latestClues, meta: { title: 'Latest puzzle' } }
+        : null;
+
+  // ---- Saved puzzles (Supabase) ----
+  const buildCurrentPuzzleData = () => {
+    const cg = activeTab === 'auto' ? grid : activeTab === 'play' ? playAnswers : manualGrid;
+    const cc = activeTab === 'auto' ? clues : activeTab === 'play' ? playClues : manualClues;
+    if (!cg) return null;
+    const layout = cg.map((row) => row.map((c) => (c === '#' ? '#' : '.')).join(''));
+    return { version: '1.0', layout, grid: cg, clues: cc, meta: { title: 'My puzzle' } };
+  };
+
+  const saveCurrentPuzzle = async () => {
+    if (!auth.user) { setShowAuth(true); return; }
+    const data = buildCurrentPuzzleData();
+    if (!data) { setError('Nothing to save yet.'); return; }
+    try {
+      await savePuzzle({ title: data.meta.title, data });
+      setProgress('Saved to your account!');
+      setTimeout(() => setProgress(''), 3000);
+    } catch (err) {
+      setError(err.message || 'Could not save puzzle.');
+    }
+  };
+
+  const loadPuzzleIntoCreate = (data) => {
+    if (!data?.grid) return;
+    const layoutGrid = data.grid.map((row) => row.map((c) => (c === '#' ? '#' : '.')).join(''));
+    const newIndex = layouts.length;
+    setLayouts((prev) => [...prev, { name: data.meta?.title || 'Saved puzzle', grid: layoutGrid }]);
+    setCurrentLayoutIndex(newIndex);
+    setManualGrid(data.grid.map((row) => row.map((c) => (c === '#' ? '#' : (c || '')))));
+    setManualClues({ across: data.clues?.across || [], down: data.clues?.down || [] });
+    setSelectedCell(null);
+    setActiveTab('create');
+  };
+
   return (
-    <div className={`relative z-10 min-h-screen overflow-x-hidden px-3 py-6 sm:px-4 sm:py-8 md:px-8 ${tagalogMode ? 'tagalog-theme' : ''}`} onKeyDown={activeTab === 'play' ? handlePlayKeyDown : handleKeyDown} tabIndex={0}>
+    <div className={`relative z-10 min-h-screen overflow-x-hidden px-3 py-6 sm:px-4 sm:py-8 md:px-8 ${tagalogMode ? 'tagalog-theme' : ''}`} onKeyDown={activeTab === 'play' ? handlePlayKeyDown : activeTab === 'create' ? handleKeyDown : undefined} tabIndex={0}>
       <div className="max-w-7xl mx-auto">
         {/* ===================== MASTHEAD ===================== */}
         <header className="mb-8 animate-rise-in">
@@ -1834,6 +1887,13 @@ const CrosswordGenerator = () => {
               <Flame size={13} />{streak.current}-day streak
             </span>
           )}
+          {auth.enabled && (auth.user ? (
+            <button onClick={auth.signOut} className="btn btn-sm btn-ghost" title={auth.user.email}>
+              {auth.displayName || 'Account'} · Sign out
+            </button>
+          ) : (
+            <button onClick={() => setShowAuth(true)} className="btn btn-sm btn-ghost">Sign in</button>
+          ))}
         </div>
 
         {/* ===================== SECTION NAV ===================== */}
@@ -1848,13 +1908,24 @@ const CrosswordGenerator = () => {
             <button onClick={() => setActiveTab('play')} className={`tab ${activeTab === 'play' ? 'tab-active' : ''}`}>
               <Play size={13} />Play
             </button>
+            <button onClick={() => setActiveTab('browse')} className={`tab ${activeTab === 'browse' ? 'tab-active' : ''}`}>
+              <Search size={14} />Browse
+            </button>
+            <button onClick={() => setActiveTab('multiplayer')} className={`tab ${activeTab === 'multiplayer' ? 'tab-active' : ''}`}>
+              <Play size={13} />Multiplayer
+            </button>
+            {auth.enabled && (
+              <button onClick={() => setActiveTab('mypuzzles')} className={`tab ${activeTab === 'mypuzzles' ? 'tab-active' : ''}`}>
+                <Save size={14} />My Puzzles
+              </button>
+            )}
             <button onClick={() => setShowDictionary(true)} className="tab">
               <BookOpen size={15} />Dictionary
             </button>
           </div>
         </nav>
         
-        {activeTab !== 'play' ? (
+        {['auto', 'create', 'play'].includes(activeTab) && (activeTab !== 'play' ? (
         <div className="panel panel-pad mb-6 overflow-visible animate-rise-in" style={{ animationDelay: '60ms' }}>
           {csvLoading && (
             <div className="mb-4">
@@ -1972,6 +2043,12 @@ const CrosswordGenerator = () => {
               <Share size={16} />Share
             </button>
 
+            {auth.enabled && (
+              <button onClick={saveCurrentPuzzle} disabled={activeTab === 'auto' ? !grid : !manualGrid} className="btn">
+                <Save size={16} />Save
+              </button>
+            )}
+
             <label className="btn cursor-pointer">
               <FolderOpen size={16} />Import
               <input type="file" accept=".json" onChange={(e) => { importPuzzle(e); }} ref={puzzleFileInputRef} className="hidden" />
@@ -2041,6 +2118,12 @@ const CrosswordGenerator = () => {
               <Share size={16} />Share
             </button>
 
+            {auth.enabled && (
+              <button onClick={saveCurrentPuzzle} disabled={!playAnswers} className="btn">
+                <Save size={16} />Save
+              </button>
+            )}
+
             <button onClick={() => setDebugMode(!debugMode)} className={`btn btn-sm ${debugMode ? 'btn-ink' : 'btn-ghost'}`}>
               <Bug size={15} />Debug
             </button>
@@ -2053,8 +2136,34 @@ const CrosswordGenerator = () => {
           {!isGenerating && progress && <div className="mt-4 border-l-2 border-grass bg-grass/8 px-4 py-3 text-grass text-sm font-medium">{progress}</div>}
           {words.length > 0 && !isGenerating && <div className="mt-4 text-ink-soft text-sm flex items-center gap-2"><Check size={15} className="text-grass" />Loaded <b className="font-mono">{words.length}</b> words from CSV</div>}
         </div>
+        ))}
+
+        {activeTab === 'browse' && (
+          <BrowseView
+            onPlay={(puzzle) => startPlayMode(puzzle.grid, puzzle.clues)}
+            onHost={(puzzle) => { setMpSeedPuzzle(puzzle); setActiveTab('multiplayer'); }}
+          />
         )}
-        
+
+        {activeTab === 'multiplayer' && (
+          <MultiplayerView
+            puzzle={hostablePuzzle}
+            seedPuzzle={mpSeedPuzzle}
+            onConsumeSeed={() => setMpSeedPuzzle(null)}
+            authUser={auth.user ? { id: auth.user.id, displayName: auth.displayName } : null}
+          />
+        )}
+
+        {activeTab === 'mypuzzles' && (
+          <MyPuzzlesView
+            authUser={auth.user}
+            onSignIn={() => setShowAuth(true)}
+            onPlay={(data) => startPlayMode(data.grid, data.clues)}
+            onEdit={(data) => loadPuzzleIntoCreate(data)}
+            onHost={(data) => { setMpSeedPuzzle({ grid: data.grid, clues: data.clues, meta: data.meta }); setActiveTab('multiplayer'); }}
+          />
+        )}
+
         {debugMode && debugLog.length > 0 && (
           <div className="panel p-4 mb-6 font-mono text-xs max-h-64 overflow-y-auto">
             <div className="flex justify-between items-center mb-3"><h2 className="eyebrow text-ink">Debug Log</h2><button onClick={() => setDebugLog([])} className="btn btn-sm btn-ghost">Clear</button></div>
@@ -2253,6 +2362,8 @@ const CrosswordGenerator = () => {
         config={ollamaConfig}
         onSave={handleSaveOllama}
       />
+
+      <AuthModal isOpen={showAuth} onClose={() => setShowAuth(false)} auth={auth} />
 
       <DictionaryModal
         isOpen={showDictionary}

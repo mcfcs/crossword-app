@@ -24,7 +24,8 @@ const PlayView = ({
   formatTime,
   difficultyInfo,
   onVirtualKey = () => {},
-  goToAdjacentClue = () => {}
+  goToAdjacentClue = () => {},
+  canControl = true
 }) => {
   const cluesContainerRef = useRef(null);
   const clueRefs = useRef({});
@@ -39,35 +40,36 @@ const PlayView = ({
     return 'text-ink-soft';
   };
 
+  // Compute the active slot/clue once per render (getPlayCurrentSlot rebuilds
+  // the layout + re-derives slots, so calling it per cell was O(cells × findSlots)).
+  const activeSlot = getPlayCurrentSlot();
+  const activeClue = activeSlot
+    ? (activeSlot.direction === 'across' ? playClues.across : playClues.down).find(c => c.row === activeSlot.row && c.col === activeSlot.col)
+    : null;
+  const activeClueId = activeClue ? `${activeSlot.direction}-${activeClue.number}` : null;
+
+  // Scroll the active clue into view ONLY when it changes and is off-screen —
+  // never on every render (e.g. the 1s timer tick), so manual scrolling of the
+  // clue list is never hijacked back to the current clue.
   useEffect(() => {
-    const slot = getPlayCurrentSlot();
-    if (!slot) return;
-    const direction = slot.direction;
-    const clueList = direction === 'across' ? playClues.across : playClues.down;
-    const clue = clueList.find(c => c.row === slot.row && c.col === slot.col);
-    if (!clue) return;
-    const id = `${direction}-${clue.number}`;
-    const el = clueRefs.current[id];
+    if (!activeClueId) return;
+    const el = clueRefs.current[activeClueId];
     const container = cluesContainerRef.current;
-    if (el && container) {
-      const targetTop = el.offsetTop - 8;
-      container.scrollTop = Math.max(0, targetTop);
+    if (!el || !container) return;
+    const top = el.offsetTop;
+    const bottom = top + el.offsetHeight;
+    if (top < container.scrollTop || bottom > container.scrollTop + container.clientHeight) {
+      container.scrollTop = Math.max(0, top - 12);
     }
-  }, [playSelectedCell, playDirection, playClues, getPlayCurrentSlot]);
+  }, [activeClueId]);
 
   if (!playGrid) return null;
 
-  // Compute the active slot once per render (getPlayCurrentSlot rebuilds the
-  // layout + re-derives slots, so calling it per cell was O(cells × findSlots)).
-  const activeSlot = getPlayCurrentSlot();
   const inActiveWord = (r, c) => {
     if (!activeSlot) return false;
     if (activeSlot.direction === 'across') return r === activeSlot.row && c >= activeSlot.col && c < activeSlot.col + activeSlot.length;
     return c === activeSlot.col && r >= activeSlot.row && r < activeSlot.row + activeSlot.length;
   };
-  const activeClue = activeSlot
-    ? (activeSlot.direction === 'across' ? playClues.across : playClues.down).find(c => c.row === activeSlot.row && c.col === activeSlot.col)
-    : null;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-rise-in pb-72 lg:pb-0">
@@ -94,12 +96,16 @@ const PlayView = ({
                   {difficultyInfo.score !== null && <span className="font-mono text-xs text-ink-faint">({Math.round(difficultyInfo.score)})</span>}
                 </span>
               )}
-              <button onClick={() => setPlayAutoCheck(prev => !prev)} className={`btn btn-sm ${playAutoCheck ? 'btn-ink' : 'btn-ghost'}`}>
-                Auto-check {playAutoCheck ? 'On' : 'Off'}
-              </button>
-              <button onClick={revealCell} className="btn btn-sm">Reveal Cell</button>
-              <button onClick={revealWord} className="btn btn-sm">Reveal Word</button>
-              <button onClick={revealAll} className="btn btn-sm btn-accent">Reveal All</button>
+              {canControl && (
+                <>
+                  <button onClick={() => setPlayAutoCheck(prev => !prev)} className={`btn btn-sm ${playAutoCheck ? 'btn-ink' : 'btn-ghost'}`}>
+                    Auto-check {playAutoCheck ? 'On' : 'Off'}
+                  </button>
+                  <button onClick={revealCell} className="btn btn-sm">Reveal Cell</button>
+                  <button onClick={revealWord} className="btn btn-sm">Reveal Word</button>
+                  <button onClick={revealAll} className="btn btn-sm btn-accent">Reveal All</button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -168,47 +174,35 @@ const PlayView = ({
       </div>
 
       {/* ---- clue list ---- */}
-      <div className="panel panel-pad max-h-[720px] overflow-y-auto" ref={cluesContainerRef}>
-        <div className="eyebrow">Solve</div>
-        <h2 className="font-display text-2xl font-semibold text-ink mb-4">Clues</h2>
-        <div className="mb-6">
-          <h3 className="eyebrow text-ink flex items-center gap-1.5 border-b border-ink/15 pb-1.5 mb-3">
-            <ChevronRight size={13} />Across
-          </h3>
-          {playClues.across.map(clue => {
-            const isActive = playDirection === 'across' && activeSlot?.row === clue.row && activeSlot?.col === clue.col;
-            return (
-              <div
-                key={`across-${clue.number}`}
-                ref={node => { if (node) clueRefs.current[`across-${clue.number}`] = node; }}
-                onClick={() => { setPlaySelectedCell({ row: clue.row, col: clue.col }); setPlayDirection('across'); }}
-                className={`mb-1.5 text-sm pl-3 border-l-2 py-1 cursor-pointer transition leading-snug
-                  ${isActive ? 'border-accent bg-accent/8 text-ink' : 'border-ink/15 text-ink-soft hover:bg-ink/[0.04]'}`}
-              >
-                <span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{clue.clue}
-              </div>
-            );
-          })}
-        </div>
-        <div>
-          <h3 className="eyebrow text-ink flex items-center gap-1.5 border-b border-ink/15 pb-1.5 mb-3">
-            <ChevronDown size={13} />Down
-          </h3>
-          {playClues.down.map(clue => {
-            const isActive = playDirection === 'down' && activeSlot?.row === clue.row && activeSlot?.col === clue.col;
-            return (
-              <div
-                key={`down-${clue.number}`}
-                ref={node => { if (node) clueRefs.current[`down-${clue.number}`] = node; }}
-                onClick={() => { setPlaySelectedCell({ row: clue.row, col: clue.col }); setPlayDirection('down'); }}
-                className={`mb-1.5 text-sm pl-3 border-l-2 py-1 cursor-pointer transition leading-snug
-                  ${isActive ? 'border-accent bg-accent/8 text-ink' : 'border-ink/15 text-ink-soft hover:bg-ink/[0.04]'}`}
-              >
-                <span className="font-mono font-semibold text-accent mr-1.5">{clue.number}</span>{clue.clue}
-              </div>
-            );
-          })}
-        </div>
+      <div className="panel max-h-[560px] lg:max-h-[720px] overflow-y-auto" ref={cluesContainerRef}>
+        {[
+          { dir: 'across', label: 'Across', list: playClues.across },
+          { dir: 'down', label: 'Down', list: playClues.down },
+        ].map(({ dir, label, list }) => (
+          <div key={dir}>
+            <h3 className="sticky top-0 z-10 bg-paper-raised/95 backdrop-blur eyebrow text-ink flex items-center gap-1.5 border-b border-line px-4 py-2.5">
+              {dir === 'across' ? <ChevronRight size={13} /> : <ChevronDown size={13} />}{label}
+              <span className="ml-auto font-mono text-[0.6rem] text-ink-faint normal-case tracking-normal">{list.length}</span>
+            </h3>
+            <div className="px-2 py-1.5">
+              {list.map((clue) => {
+                const isActive = playDirection === dir && activeSlot?.row === clue.row && activeSlot?.col === clue.col;
+                return (
+                  <button
+                    key={`${dir}-${clue.number}`}
+                    ref={(node) => { if (node) clueRefs.current[`${dir}-${clue.number}`] = node; }}
+                    onClick={() => { setPlaySelectedCell({ row: clue.row, col: clue.col }); setPlayDirection(dir); }}
+                    className={`w-full flex gap-3 text-left rounded-lg px-2.5 py-2 transition leading-snug
+                      ${isActive ? 'bg-accent text-white' : 'text-ink-soft hover:bg-ink/[0.05]'}`}
+                  >
+                    <span className={`font-mono font-bold tabular-nums w-6 shrink-0 text-right text-sm ${isActive ? 'text-white' : 'text-accent'}`}>{clue.number}</span>
+                    <span className="flex-1 text-[0.92rem]">{clue.clue || <span className="italic opacity-60">—</span>}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       <MobileSolveDock

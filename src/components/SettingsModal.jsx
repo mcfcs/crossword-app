@@ -109,6 +109,7 @@ const SettingsModal = ({ isOpen, onClose, config, onSave }) => {
             <li>Restart Ollama with those set, then <b>Test connection</b>.</li>
           </ul>
           <div>Over <span className="font-semibold">Tailscale</span>, set the URL above to the host’s Tailscale address (e.g. <code className="chip">http://100.x.x.x:11434</code>) — not <code className="chip">localhost</code>.</div>
+          <div>From the <span className="font-semibold">deployed HTTPS site</span>, run <code className="chip">tailscale serve --bg --https=443 http://localhost:11434</code> on the Ollama box and paste the printed <code className="chip">https://…ts.net</code> URL above (HTTPS→HTTPS avoids mixed-content blocks).</div>
           <div className="text-ink-faint/80">This page’s origin: <span className="font-mono text-ink-soft break-all">{origin || 'unknown'}</span></div>
         </div>
 

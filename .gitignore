@@ -12,6 +12,18 @@ dist
 dist-ssr
 *.local
 
+# Local env files (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# Debug captures (HAR files contain session cookies — never commit)
+context/
+*.har
+
+# Vercel CLI
+.vercel
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -25,3 +37,6 @@ dist-ssr
 
 # Python
 venv
+
+.vercel
+.env*

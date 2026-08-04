@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/cwf/puzzle.js": { "maxDuration": 30 },
+    "api/cwf/search.js": { "maxDuration": 20 }
+  }
+}
