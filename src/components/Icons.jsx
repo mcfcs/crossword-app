@@ -35,6 +35,8 @@ export const PenTool = make(<><path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 1
 export const Sparkles = make(<><path d="M12 3l1.8 5.4a2 2 0 0 0 1.3 1.3L20.5 11.5l-5.4 1.8a2 2 0 0 0-1.3 1.3L12 20l-1.8-5.4a2 2 0 0 0-1.3-1.3L3.5 11.5l5.4-1.8a2 2 0 0 0 1.3-1.3z" /><path d="M19 4v3M20.5 5.5h-3" /></>);
 export const X = make(<><path d="M18 6 6 18" /><path d="M6 6l12 12" /></>);
 export const Check = make(<path d="M20 6 9 17l-5-5" />);
+export const Volume2 = make(<><path d="M11 5 6 9H2v6h4l5 4z" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M19 5a9 9 0 0 1 0 14" /></>);
+export const VolumeX = make(<><path d="M11 5 6 9H2v6h4l5 4z" /><path d="M22 9l-6 6M16 9l6 6" /></>);
 export const ChevronRight = make(<path d="M9 18l6-6-6-6" />);
 export const ChevronLeft = make(<path d="M15 18l-6-6 6-6" />);
 export const ChevronDown = make(<path d="M6 9l6 6 6-6" />);

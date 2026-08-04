@@ -25,7 +25,10 @@ const PlayView = ({
   difficultyInfo,
   onVirtualKey = () => {},
   goToAdjacentClue = () => {},
-  canControl = true
+  canControl = true,
+  remoteCells = {},
+  paused = false,
+  onTogglePause = null
 }) => {
   const cluesContainerRef = useRef(null);
   const clueRefs = useRef({});
@@ -82,6 +85,11 @@ const PlayView = ({
                 <span className="eyebrow">Time</span>
                 <span className="font-mono text-2xl font-medium text-ink tabular-nums">{formatTime(playTimer)}</span>
               </div>
+              {onTogglePause && !playComplete && (
+                <button onClick={onTogglePause} className={`btn btn-sm ${paused ? 'btn-accent' : 'btn-ghost'}`}>
+                  {paused ? 'Resume' : 'Pause'}
+                </button>
+              )}
               {playComplete && (
                 <span className="inline-flex items-center gap-1.5 text-grass font-display font-semibold text-lg">
                   <Trophy size={20} />Complete
@@ -111,7 +119,14 @@ const PlayView = ({
         </div>
 
         {/* ---- the grid ---- */}
-        <div className="panel panel-pad">
+        <div className="panel panel-pad relative">
+          {paused && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-paper-raised/95 backdrop-blur rounded-xl">
+              <div className="font-display text-3xl font-semibold text-ink">Paused</div>
+              <p className="text-ink-faint text-sm">The clock is stopped.</p>
+              <button onClick={onTogglePause} className="btn btn-accent">Resume solving</button>
+            </div>
+          )}
           <div className="overflow-x-auto pb-2">
             <div className="xw-grid xw-grid--play" style={{ '--cols': playGrid[0]?.length || 15 }}>
               {playGrid.map((row, r) => (
@@ -149,6 +164,7 @@ const PlayView = ({
                     const letterColor = isRevealed
                       ? 'text-revealed'
                       : isWrong ? 'text-wrong' : isCorrect ? 'text-correct' : 'text-ink';
+                    const remote = cell !== '#' ? remoteCells[`${r},${c}`] : null;
 
                     return (
                       <div
@@ -156,6 +172,16 @@ const PlayView = ({
                         onClick={() => handlePlayCellClick(r, c)}
                         className={`xw-cell ${cell === '#' ? '' : 'cursor-pointer'} ${fill}`}
                       >
+                        {remote && (
+                          <span
+                            className="absolute inset-0 pointer-events-none"
+                            title={remote.name}
+                            style={{
+                              backgroundColor: remote.tint ? `${remote.tint}24` : undefined,
+                              boxShadow: remote.ring ? `inset 0 0 0 2.5px ${remote.ring}` : undefined,
+                            }}
+                          />
+                        )}
                         {cell !== '#' && clueNumber && (
                           <span className="xw-num">{clueNumber}</span>
                         )}

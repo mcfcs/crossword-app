@@ -4,10 +4,10 @@ import { getGuestId, getSavedName, saveName, colorFor } from '../multiplayer/ide
 import { createGame, joinGame } from '../multiplayer/client';
 
 // Host a loaded puzzle or join by 5-digit code. Returns { game, me } on success.
-const LobbyModal = ({ isOpen, onClose, puzzle, defaultMode = 'host', authUser, onReady }) => {
+const LobbyModal = ({ isOpen, onClose, puzzle, defaultMode = 'host', initialCode = '', authUser, onReady }) => {
   const [mode, setMode] = useState(defaultMode);
   const [name, setName] = useState(getSavedName() || authUser?.displayName || '');
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(initialCode);
   const [gamemode, setGamemode] = useState('coop');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');

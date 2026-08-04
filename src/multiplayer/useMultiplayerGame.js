@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { findSlots, getCellNumber } from '../utils/crosswordUtils';
 import { supabase } from '../lib/supabase';
+import { sfx } from '../utils/sound';
 import { openChannel, loadPlayers, persistState, updateGameFields, addScore } from './client';
 
 const key = (r, c) => `${r},${c}`;
@@ -96,6 +97,8 @@ export function useMultiplayerGame(game, me) {
     setTimeout(() => setCheckFlash(false), 4000);
   }, []);
 
+  useEffect(() => { if (complete) sfx.win(); }, [complete]);
+
   // ---- update own presence cursor when selection changes ----
   useEffect(() => {
     chanRef.current?.track?.({ playerId: me.id, name: me.name, color: me.color, r: selectedCell?.row ?? null, c: selectedCell?.col ?? null, dir: direction });
@@ -143,6 +146,7 @@ export function useMultiplayerGame(game, me) {
   const writeCell = useCallback((r, c, letter) => {
     setGrid((g) => { const ng = g.map((row) => [...row]); ng[r][c] = letter; checkComplete(ng); if (letter) scoreForLetter(r, c, letter, ng); return ng; });
     chanRef.current?.send({ type: 'broadcast', event: 'cell', payload: { r, c, letter } });
+    if (letter) sfx.key();
     schedulePersist();
   }, [checkComplete, scoreForLetter, schedulePersist]);
 
@@ -234,6 +238,29 @@ export function useMultiplayerGame(game, me) {
 
   const formatTime = useCallback((s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, []);
 
+  // Where every OTHER player's cursor + active word is, keyed by "r,c" with
+  // their colour — so PlayView can render their highlights to everyone.
+  const remoteCells = useMemo(() => {
+    const map = {};
+    for (const p of players) {
+      if (!p || p.playerId === me.id || p.r == null || p.c == null) continue;
+      const slot = getSlotAt({ row: p.r, col: p.c }, p.dir || 'across');
+      if (slot) {
+        for (let i = 0; i < slot.length; i++) {
+          const rr = slot.direction === 'across' ? slot.row : slot.row + i;
+          const cc = slot.direction === 'across' ? slot.col + i : slot.col;
+          const k = `${rr},${cc}`;
+          (map[k] = map[k] || {}).tint = p.color;
+        }
+      }
+      const ck = `${p.r},${p.c}`;
+      const cur = (map[ck] = map[ck] || {});
+      cur.ring = p.color;
+      cur.name = p.name;
+    }
+    return map;
+  }, [players, me.id, getSlotAt]);
+
   // The prop surface PlayView consumes, plus multiplayer extras for the view shell.
   return {
     // PlayView props
@@ -258,6 +285,7 @@ export function useMultiplayerGame(game, me) {
     formatTime,
     onVirtualKey,
     goToAdjacentClue,
+    remoteCells,
     // multiplayer shell extras
     isHost,
     gamemode,

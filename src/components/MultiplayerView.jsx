@@ -1,14 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import PlayView from './PlayView';
 import LobbyModal from './LobbyModal';
-import { Play, FolderOpen, X } from './Icons';
+import { Play, FolderOpen, X, Share, Check } from './Icons';
 import { supabaseEnabled } from '../lib/supabase';
 import { useMultiplayerGame } from '../multiplayer/useMultiplayerGame';
+
+const inviteUrl = (code) => `${window.location.origin}${window.location.pathname}?join=${code}`;
 
 // Renders the live board once you're in a game. Uses the multiplayer adapter to
 // drive the unchanged PlayView, plus a lobby panel (code, roster, host controls).
 function MultiplayerBoard({ game, me, onLeave }) {
   const mp = useMultiplayerGame(game, me);
+  const [copied, setCopied] = useState(false);
+  const copyInvite = () => {
+    const url = inviteUrl(mp.code);
+    (navigator.clipboard?.writeText(url) || Promise.reject())
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })
+      .catch(() => { window.prompt('Copy this invite link:', url); });
+  };
 
   // physical keyboard → shared board
   useEffect(() => {
@@ -29,7 +38,12 @@ function MultiplayerBoard({ game, me, onLeave }) {
       <div className="panel panel-pad mb-5 flex flex-wrap items-center gap-4 justify-between">
         <div>
           <div className="eyebrow">Game code</div>
-          <div className="font-mono text-2xl font-bold tracking-[0.3em] text-ink">{mp.code}</div>
+          <div className="flex items-center gap-3">
+            <div className="font-mono text-2xl font-bold tracking-[0.3em] text-ink">{mp.code}</div>
+            <button onClick={copyInvite} className={`btn btn-sm ${copied ? 'btn-ink' : 'btn-ghost'}`}>
+              {copied ? <><Check size={14} />Copied!</> : <><Share size={14} />Invite link</>}
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 min-w-[180px]">
@@ -64,11 +78,11 @@ function MultiplayerBoard({ game, me, onLeave }) {
   );
 }
 
-const MultiplayerView = ({ puzzle, seedPuzzle, onConsumeSeed, authUser }) => {
+const MultiplayerView = ({ puzzle, seedPuzzle, onConsumeSeed, authUser, autoJoinCode }) => {
   const [session, setSession] = useState(null); // { game, me }
-  // Mounts fresh when you switch to this tab; if Browse handed over a puzzle to
-  // host, open the host lobby immediately.
-  const [lobby, setLobby] = useState(seedPuzzle ? 'host' : null); // null | 'host' | 'join'
+  // Mounts fresh when you switch to this tab; open the host lobby if Browse
+  // handed over a puzzle, or the join lobby if arriving via an invite link.
+  const [lobby, setLobby] = useState(seedPuzzle ? 'host' : autoJoinCode ? 'join' : null); // null | 'host' | 'join'
 
   const hostPuzzle = seedPuzzle || puzzle;
 
@@ -100,6 +114,7 @@ const MultiplayerView = ({ puzzle, seedPuzzle, onConsumeSeed, authUser }) => {
       <LobbyModal
         isOpen={!!lobby}
         defaultMode={lobby || 'host'}
+        initialCode={autoJoinCode || ''}
         puzzle={hostPuzzle}
         authUser={authUser}
         onClose={() => { setLobby(null); onConsumeSeed?.(); }}

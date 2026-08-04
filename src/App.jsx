@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Languages, Settings, Flame, DownloadCloud, Zap, Share, Search } from './components/Icons';
+import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Languages, Settings, Flame, DownloadCloud, Zap, Share, Search, Volume2, VolumeX } from './components/Icons';
 import BrowseView from './components/BrowseView';
 import MultiplayerView from './components/MultiplayerView';
 import AuthModal from './components/AuthModal';
@@ -18,6 +18,7 @@ import { todayKey, seedFromString, makeRng, seededShuffle, getStreak, recordDail
 import { getOllamaConfig, saveOllamaConfig, generateClues } from './utils/ollama';
 import { useAuth } from './hooks/useAuth';
 import { savePuzzle } from './lib/puzzles';
+import { sfx, isSoundOn, setSoundOn } from './utils/sound';
 
 const CrosswordGenerator = () => {
   const [activeTab, setActiveTab] = useState('auto');
@@ -75,6 +76,7 @@ const CrosswordGenerator = () => {
   const [playComplete, setPlayComplete] = useState(false);
   const [playTimer, setPlayTimer] = useState(0);
   const [playTimerActive, setPlayTimerActive] = useState(false);
+  const [playPaused, setPlayPaused] = useState(false);
   const [playAutoCheck, setPlayAutoCheck] = useState(false);
   const [revealedCells, setRevealedCells] = useState(new Set());
   
@@ -94,8 +96,19 @@ const CrosswordGenerator = () => {
   const [isDailyMode, setIsDailyMode] = useState(false);
   const [streak, setStreak] = useState(() => getStreak());
   const [mpSeedPuzzle, setMpSeedPuzzle] = useState(null); // puzzle handed from Browse to host
+  const [autoJoinCode] = useState(() => {
+    try { const c = new URLSearchParams(window.location.search).get('join'); return c && /^\d{5}$/.test(c) ? c : null; } catch { return null; }
+  });
   const [showAuth, setShowAuth] = useState(false);
+  const [soundOn, setSoundOnState] = useState(() => isSoundOn());
   const auth = useAuth();
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setSoundOnState(next);
+    if (next) sfx.reveal(); // audible confirmation
+  };
 
   const puzzleFileInputRef = useRef(null);
   const playTimerRef = useRef(null);
@@ -1354,6 +1367,7 @@ const CrosswordGenerator = () => {
     setPlayComplete(false);
     setRevealedCells(new Set());
     setPlayAutoCheck(false); // start every puzzle with auto-check off
+    setPlayPaused(false);
     setPlayTimer(0);
     setPlayTimerActive(true);
     setActiveTab('play');
@@ -1395,8 +1409,17 @@ const CrosswordGenerator = () => {
     return c === slot.col && r >= slot.row && r < slot.row + slot.length;
   };
   
+  const togglePlayPause = () => {
+    setPlayPaused(prev => {
+      const next = !prev;
+      setPlayTimerActive(!next && !playComplete);
+      return next;
+    });
+  };
+
   // Core Play input — shared by the physical keyboard and the on-screen keyboard.
   const applyPlayKey = (key) => {
+    if (playPaused) return; // no input while paused
     if (!playSelectedCell || !playGrid) return;
     const { row, col } = playSelectedCell;
 
@@ -1423,6 +1446,7 @@ const CrosswordGenerator = () => {
       const newGrid = playGrid.map(r => [...r]);
       newGrid[row][col] = key.toUpperCase();
       setPlayGrid(newGrid);
+      sfx.key();
       // advance to the next cell in the current word
       if (playDirection === 'across' && col < playGrid[0].length - 1 && playGrid[row][col + 1] !== '#') {
         setPlaySelectedCell({ row, col: col + 1 });
@@ -1694,6 +1718,17 @@ const CrosswordGenerator = () => {
     if (showSuggestions && words.length > 0) setSuggestions(findSuggestionsForSlot());
   }, [selectedCell, selectedDirection, manualGrid, showSuggestions]);
 
+  // Arriving via an invite link (?join=CODE): jump to Multiplayer and clean the URL.
+  React.useEffect(() => {
+    if (!autoJoinCode) return;
+    setActiveTab('multiplayer');
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete('join');
+      window.history.replaceState({}, '', u.toString());
+    } catch { /* ignore */ }
+  }, [autoJoinCode]);
+
   // ============ PWA INSTALL ============
   React.useEffect(() => {
     const onBeforeInstall = (e) => { e.preventDefault(); setInstallPromptEvent(e); };
@@ -1749,6 +1784,11 @@ const CrosswordGenerator = () => {
     }
   }, [playComplete, isDailyMode]);
 
+  // Victory chime on completion.
+  React.useEffect(() => {
+    if (playComplete) sfx.win();
+  }, [playComplete]);
+
   // ============ AUTO-SAVE & RESUME ============
   // Restore a saved session once on mount (primarily an in-progress solve).
   React.useEffect(() => {
@@ -1770,9 +1810,9 @@ const CrosswordGenerator = () => {
       setPlayDirection(s.play.playDirection || 'across');
       setIsDailyMode(!!s.play.isDailyMode);
       setPlayTimerActive(!s.play.playComplete);
-      if (s.activeTab === 'play') setActiveTab('play');
+      if (s.activeTab === 'play' && !autoJoinCode) setActiveTab('play');
     }
-  }, []);
+  }, [autoJoinCode]);
 
   // Persist the working session whenever it changes.
   React.useEffect(() => {
@@ -1876,6 +1916,9 @@ const CrosswordGenerator = () => {
           </button>
           <button onClick={() => setShowSettings(true)} className={`btn btn-sm ${ollamaConfig.enabled ? 'btn-ink' : 'btn-ghost'}`}>
             <Zap size={14} />AI {ollamaConfig.enabled ? 'On' : 'Off'}
+          </button>
+          <button onClick={toggleSound} className={`btn btn-sm ${soundOn ? 'btn-ink' : 'btn-ghost'}`} title="Sound effects">
+            {soundOn ? <Volume2 size={14} /> : <VolumeX size={14} />}Sound
           </button>
           {installPromptEvent && (
             <button onClick={handleInstall} className="btn btn-sm btn-accent">
@@ -2151,6 +2194,7 @@ const CrosswordGenerator = () => {
             seedPuzzle={mpSeedPuzzle}
             onConsumeSeed={() => setMpSeedPuzzle(null)}
             authUser={auth.user ? { id: auth.user.id, displayName: auth.displayName } : null}
+            autoJoinCode={autoJoinCode}
           />
         )}
 
@@ -2300,6 +2344,8 @@ const CrosswordGenerator = () => {
             difficultyInfo={difficultyInfo}
             onVirtualKey={applyPlayKey}
             goToAdjacentClue={goToAdjacentClue}
+            paused={playPaused}
+            onTogglePause={togglePlayPause}
           />
         )}
         
