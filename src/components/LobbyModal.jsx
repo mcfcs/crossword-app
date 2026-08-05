@@ -9,6 +9,7 @@ const LobbyModal = ({ isOpen, onClose, puzzle, defaultMode = 'host', initialCode
   const [name, setName] = useState(getSavedName() || authUser?.displayName || '');
   const [code, setCode] = useState(initialCode);
   const [gamemode, setGamemode] = useState('coop');
+  const [spectator, setSpectator] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -23,14 +24,14 @@ const LobbyModal = ({ isOpen, onClose, puzzle, defaultMode = 'host', initialCode
     saveName(name.trim());
     setBusy(true);
     try {
-      const me = { id: myId, name: name.trim(), color: myColor, isHost: mode === 'host' };
+      const me = { id: myId, name: name.trim(), color: myColor, isHost: mode === 'host', isSpectator: mode === 'join' && spectator };
       let game;
       if (mode === 'host') {
         if (!puzzle) { setError('Load, generate, or import a puzzle first.'); setBusy(false); return; }
         game = await createGame({ puzzle, hostId: myId, hostName: name.trim(), gamemode, color: myColor });
       } else {
         if (!/^\d{5}$/.test(code.trim())) { setError('Enter the 5-digit game code.'); setBusy(false); return; }
-        game = await joinGame({ code: code.trim(), playerId: myId, name: name.trim(), color: myColor });
+        game = await joinGame({ code: code.trim(), playerId: myId, name: name.trim(), color: myColor, isSpectator: spectator });
         me.isHost = game.host_id === myId;
       }
       onReady({ game, me });
@@ -74,9 +75,15 @@ const LobbyModal = ({ isOpen, onClose, puzzle, defaultMode = 'host', initialCode
               </div>
             </>
           ) : (
-            <div>
-              <div className="eyebrow mb-1.5">Game code</div>
-              <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 5))} placeholder="12345" inputMode="numeric" className="field font-mono text-2xl tracking-[0.4em] text-center" />
+            <div className="space-y-3">
+              <div>
+                <div className="eyebrow mb-1.5">Game code</div>
+                <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 5))} placeholder="12345" inputMode="numeric" className="field font-mono text-2xl tracking-[0.4em] text-center" />
+              </div>
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" checked={spectator} onChange={(e) => setSpectator(e.target.checked)} className="w-4 h-4 accent-accent" />
+                <span className="text-sm text-ink-soft">Join as <span className="font-semibold text-ink">spectator</span> (watch only)</span>
+              </label>
             </div>
           )}
 

@@ -1,22 +1,30 @@
 // Multiplayer state adapter. Owns the shared board and exposes the EXACT prop
-// surface PlayView expects, so <PlayView {...mp}/> works unchanged. Cell edits +
-// host actions sync via a Supabase Realtime channel; cursors via presence.
+// surface PlayView/GameView expect, plus multiplayer social extras (roster,
+// scores, fills, chat, reactions, toasts, host actions, rematch). Cell edits +
+// host/social actions sync via a Supabase Realtime channel; cursors via presence.
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { findSlots, getCellNumber } from '../utils/crosswordUtils';
 import { supabase } from '../lib/supabase';
 import { sfx } from '../utils/sound';
-import { openChannel, loadPlayers, persistState, updateGameFields, addScore } from './client';
+import {
+  openChannel, loadPlayers, persistState, updateGameFields, addScore,
+  addFills, resetPlayers, sendChatRow, loadChat, kickPlayer, setHost,
+} from './client';
 
 const key = (r, c) => `${r},${c}`;
+const blank = (answers) => answers.map((row) => row.map((c) => (c === '#' ? '#' : '')));
 
 export function useMultiplayerGame(game, me) {
-  const puzzle = game.puzzle;
+  // --- reactive puzzle (so a host rematch can swap it in place) ---
+  const [puzzle, setPuzzle] = useState(game.puzzle);
   const answers = puzzle.grid;                 // 2D letters / '#'
   const clues = puzzle.clues;
   const layout = useMemo(() => answers.map((row) => row.map((c) => (c === '#' ? '#' : '.'))), [answers]);
   const slots = useMemo(() => findSlots(layout), [layout]);
+  const circles = useMemo(() => new Set(puzzle.circles || []), [puzzle]);
+  const shades = useMemo(() => new Set(puzzle.shades || []), [puzzle]);
 
-  const [grid, setGrid] = useState(() => game.state?.grid || answers.map((r) => r.map((c) => (c === '#' ? '#' : ''))));
+  const [grid, setGrid] = useState(() => game.state?.grid || blank(answers));
   const [selectedCell, setSelectedCell] = useState(null);
   const [direction, setDirection] = useState('across');
   const [autoCheck, setAutoCheckState] = useState(!!game.auto_check);
@@ -25,16 +33,27 @@ export function useMultiplayerGame(game, me) {
   const [revealedCells, setRevealedCells] = useState(new Set());
   const [players, setPlayers] = useState([]);
   const [scores, setScores] = useState({});
+  const [fills, setFills] = useState({});
   const [complete, setComplete] = useState(false);
   const [timer, setTimer] = useState(0);
+  const [chat, setChat] = useState([]);
+  const [reactions, setReactions] = useState([]);
+  const [toasts, setToasts] = useState([]);
+  const [hostId, setHostId] = useState(game.host_id);
+  const [kicked, setKicked] = useState(false);
+
+  const isHost = hostId === me.id;
+  const isSpectator = !!me.isSpectator;
 
   const chanRef = useRef(null);
-  const gridRef = useRef(grid);
-  gridRef.current = grid;
+  const gridRef = useRef(grid); gridRef.current = grid;
+  const answersRef = useRef(answers); answersRef.current = answers;
   const scoredCells = useRef(new Set());
   const scoredWords = useRef(new Set());
   const persistTimer = useRef(null);
-  const isHost = me.isHost;
+  const myFillsRef = useRef(0);
+  const prevPlayersRef = useRef(new Map());
+  const seqRef = useRef(0);
 
   // ---- timer ----
   useEffect(() => {
@@ -43,15 +62,34 @@ export function useMultiplayerGame(game, me) {
     return () => clearInterval(t);
   }, [complete]);
 
-  // ---- completion check ----
+  // ---- helpers (stable; read current answers via ref so once-registered
+  //      channel handlers stay correct after a rematch swaps the puzzle) ----
   const checkComplete = useCallback((g) => {
+    const a = answersRef.current;
     for (let r = 0; r < g.length; r++) {
       for (let c = 0; c < g[r].length; c++) {
-        if (answers[r][c] !== '#' && g[r][c] !== answers[r][c]) return;
+        if (a[r]?.[c] !== '#' && g[r]?.[c] !== a[r]?.[c]) return;
       }
     }
     setComplete(true);
-  }, [answers]);
+  }, []);
+
+  const flashCheck = useCallback(() => {
+    setCheckFlash(true);
+    setTimeout(() => setCheckFlash(false), 4000);
+  }, []);
+
+  const pushToast = useCallback((text) => {
+    const id = ++seqRef.current;
+    setToasts((t) => [...t, { id, text }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
+  }, []);
+
+  const addReaction = useCallback((name, emoji) => {
+    const id = ++seqRef.current;
+    setReactions((r) => [...r, { id, name, emoji, x: 10 + Math.random() * 80 }]);
+    setTimeout(() => setReactions((r) => r.filter((x) => x.id !== id)), 2500);
+  }, []);
 
   const schedulePersist = useCallback(() => {
     if (!supabase) return;
@@ -59,53 +97,78 @@ export function useMultiplayerGame(game, me) {
     persistTimer.current = setTimeout(() => persistState(game.id, { grid: gridRef.current }), 1500);
   }, [game.id]);
 
-  // ---- channel ----
+  const applyRematch = useCallback((newPuzzle) => {
+    setPuzzle(newPuzzle);
+    setGrid(blank(newPuzzle.grid));
+    setRevealedCells(new Set());
+    setScores({}); setFills({}); myFillsRef.current = 0;
+    scoredCells.current = new Set(); scoredWords.current = new Set();
+    setComplete(false); setTimer(0); setSelectedCell(null);
+    pushToast('New puzzle — rematch!');
+  }, [pushToast]);
+
+  // ---- channel (registered once per game) ----
   useEffect(() => {
     const ch = openChannel(game.id, me.id);
     if (!ch) return undefined;
     chanRef.current = ch;
 
     ch.on('broadcast', { event: 'cell' }, ({ payload }) => {
-      setGrid((g) => { const ng = g.map((row) => [...row]); ng[payload.r][payload.c] = payload.letter; checkComplete(ng); return ng; });
+      setGrid((g) => { const ng = g.map((row) => [...row]); if (ng[payload.r]?.[payload.c] !== undefined) ng[payload.r][payload.c] = payload.letter; checkComplete(ng); return ng; });
     });
     ch.on('broadcast', { event: 'reveal' }, ({ payload }) => {
-      setGrid((g) => { const ng = g.map((row) => [...row]); payload.cells.forEach(({ r, c, letter }) => { ng[r][c] = letter; }); checkComplete(ng); return ng; });
+      setGrid((g) => { const ng = g.map((row) => [...row]); payload.cells.forEach(({ r, c, letter }) => { if (ng[r]?.[c] !== undefined) ng[r][c] = letter; }); checkComplete(ng); return ng; });
       setRevealedCells((s) => { const n = new Set(s); payload.cells.forEach(({ r, c }) => n.add(key(r, c))); return n; });
     });
     ch.on('broadcast', { event: 'autocheck' }, ({ payload }) => setAutoCheckState(payload.value));
     ch.on('broadcast', { event: 'check' }, () => flashCheck());
-    ch.on('broadcast', { event: 'gamemode' }, ({ payload }) => setGamemodeState(payload.value));
+    ch.on('broadcast', { event: 'gamemode' }, ({ payload }) => { setGamemodeState(payload.value); setScores({}); scoredCells.current = new Set(); scoredWords.current = new Set(); });
     ch.on('broadcast', { event: 'score' }, ({ payload }) => setScores((s) => ({ ...s, [payload.playerId]: payload.score })));
+    ch.on('broadcast', { event: 'fills' }, ({ payload }) => setFills((f) => ({ ...f, [payload.playerId]: payload.fills })));
+    ch.on('broadcast', { event: 'chat' }, ({ payload }) => setChat((c) => [...c, payload.msg]));
+    ch.on('broadcast', { event: 'reaction' }, ({ payload }) => addReaction(payload.name, payload.emoji));
+    ch.on('broadcast', { event: 'host' }, ({ payload }) => setHostId(payload.hostId));
+    ch.on('broadcast', { event: 'rematch' }, ({ payload }) => applyRematch(payload.puzzle));
+    ch.on('broadcast', { event: 'kick' }, ({ payload }) => { if (payload.playerId === me.id) setKicked(true); });
+
     ch.on('presence', { event: 'sync' }, () => {
       const state = ch.presenceState();
-      setPlayers(Object.values(state).flat());
+      const list = Object.values(state).flat();
+      setPlayers(list);
+      // diff for join/leave toasts (skip self)
+      const cur = new Map(list.filter((p) => p.playerId && p.playerId !== me.id).map((p) => [p.playerId, p.name]));
+      const prev = prevPlayersRef.current;
+      if (prev.size || cur.size) {
+        cur.forEach((name, id) => { if (!prev.has(id)) pushToast(`${name} joined`); });
+        prev.forEach((name, id) => { if (!cur.has(id)) pushToast(`${name} left`); });
+      }
+      prevPlayersRef.current = cur;
     });
 
     ch.subscribe(async (status) => {
       if (status !== 'SUBSCRIBED') return;
-      await ch.track({ playerId: me.id, name: me.name, color: me.color, r: null, c: null, dir: 'across' });
+      await ch.track({ playerId: me.id, name: me.name, color: me.color, r: null, c: null, dir: 'across', spectator: isSpectator });
       const ps = await loadPlayers(game.id);
       setScores(Object.fromEntries(ps.map((p) => [p.player_id, p.score])));
+      setFills(Object.fromEntries(ps.map((p) => [p.player_id, p.fills || 0])));
+      myFillsRef.current = ps.find((p) => p.player_id === me.id)?.fills || 0;
+      setChat(await loadChat(game.id));
     });
 
     return () => { try { supabase.removeChannel(ch); } catch { /* ignore */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.id]);
 
-  const flashCheck = useCallback(() => {
-    setCheckFlash(true);
-    setTimeout(() => setCheckFlash(false), 4000);
-  }, []);
+  // ---- celebrate on completion (shared board finishes together) ----
+  useEffect(() => { if (complete) { sfx.win(); pushToast('Puzzle solved! 🎉'); } }, [complete, pushToast]);
 
-  useEffect(() => { if (complete) sfx.win(); }, [complete]);
-
-  // ---- update own presence cursor when selection changes ----
+  // ---- broadcast own cursor on selection change ----
   useEffect(() => {
-    chanRef.current?.track?.({ playerId: me.id, name: me.name, color: me.color, r: selectedCell?.row ?? null, c: selectedCell?.col ?? null, dir: direction });
+    chanRef.current?.track?.({ playerId: me.id, name: me.name, color: me.color, r: selectedCell?.row ?? null, c: selectedCell?.col ?? null, dir: direction, spectator: isSpectator });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCell, direction]);
 
-  // ---- slot helpers (mirror PlayView / App) ----
+  // ---- slot helpers ----
   const getSlotAt = useCallback((cell, dir) => {
     if (!cell) return null;
     return slots.find((s) => {
@@ -117,7 +180,7 @@ export function useMultiplayerGame(game, me) {
   const getPlayCurrentSlot = useCallback(() => getSlotAt(selectedCell, direction), [getSlotAt, selectedCell, direction]);
   const getNumberForCell = useCallback((r, c, clueSet = clues) => getCellNumber(clueSet, r, c), [clues]);
 
-  // ---- scoring (points mode) ----
+  // ---- scoring + fills ----
   const bump = useCallback((delta) => {
     const next = (scores[me.id] || 0) + delta;
     setScores((s) => ({ ...s, [me.id]: next }));
@@ -125,10 +188,17 @@ export function useMultiplayerGame(game, me) {
     addScore(game.id, me.id, delta);
   }, [scores, me.id, game.id]);
 
+  const bumpFills = useCallback(() => {
+    myFillsRef.current += 1;
+    const next = myFillsRef.current;
+    setFills((f) => ({ ...f, [me.id]: next }));
+    chanRef.current?.send({ type: 'broadcast', event: 'fills', payload: { playerId: me.id, fills: next } });
+    addFills(game.id, me.id, 1);
+  }, [me.id, game.id]);
+
   const scoreForLetter = useCallback((r, c, letter, g) => {
     if (gamemode !== 'points' || letter !== answers[r][c]) return;
     if (!scoredCells.current.has(key(r, c))) { scoredCells.current.add(key(r, c)); bump(1); }
-    // first fully-correct word through this cell → +3 bonus
     for (const dir of ['across', 'down']) {
       const slot = getSlotAt({ row: r, col: c }, dir);
       if (!slot || scoredWords.current.has(slot.id)) continue;
@@ -142,16 +212,18 @@ export function useMultiplayerGame(game, me) {
     }
   }, [gamemode, answers, bump, getSlotAt]);
 
-  // ---- input (shared by physical + on-screen keyboards) ----
+  // ---- input ----
   const writeCell = useCallback((r, c, letter) => {
+    if (isSpectator) return;
+    const wasEmpty = !gridRef.current[r]?.[c];
     setGrid((g) => { const ng = g.map((row) => [...row]); ng[r][c] = letter; checkComplete(ng); if (letter) scoreForLetter(r, c, letter, ng); return ng; });
     chanRef.current?.send({ type: 'broadcast', event: 'cell', payload: { r, c, letter } });
-    if (letter) sfx.key();
+    if (letter) { sfx.key(); if (wasEmpty) bumpFills(); }
     schedulePersist();
-  }, [checkComplete, scoreForLetter, schedulePersist]);
+  }, [isSpectator, checkComplete, scoreForLetter, schedulePersist, bumpFills]);
 
   const onVirtualKey = useCallback((k) => {
-    if (!selectedCell) return;
+    if (isSpectator || !selectedCell) return;
     const { row, col } = selectedCell;
     const blocked = (r, c) => r < 0 || c < 0 || r >= grid.length || c >= grid[0].length || grid[r][c] === '#';
     if (k === 'Backspace') {
@@ -170,7 +242,7 @@ export function useMultiplayerGame(game, me) {
     else if (k === 'ArrowLeft' && !blocked(row, col - 1)) { setSelectedCell({ row, col: col - 1 }); setDirection('across'); }
     else if (k === 'ArrowDown' && !blocked(row + 1, col)) { setSelectedCell({ row: row + 1, col }); setDirection('down'); }
     else if (k === 'ArrowUp' && !blocked(row - 1, col)) { setSelectedCell({ row: row - 1, col }); setDirection('down'); }
-  }, [selectedCell, direction, grid, writeCell]);
+  }, [isSpectator, selectedCell, direction, grid, writeCell]);
 
   const handlePlayCellClick = useCallback((r, c) => {
     if (grid[r][c] === '#') return;
@@ -187,7 +259,7 @@ export function useMultiplayerGame(game, me) {
     setSelectedCell({ row: list[idx].row, col: list[idx].col });
   }, [direction, clues, getPlayCurrentSlot]);
 
-  // ---- host-only actions ----
+  // ---- host actions ----
   const revealCells = useCallback((cells) => {
     chanRef.current?.send({ type: 'broadcast', event: 'reveal', payload: { cells } });
     setGrid((g) => { const ng = g.map((row) => [...row]); cells.forEach(({ r, c, letter }) => { ng[r][c] = letter; }); checkComplete(ng); return ng; });
@@ -200,7 +272,6 @@ export function useMultiplayerGame(game, me) {
     const { row, col } = selectedCell;
     revealCells([{ r: row, c: col, letter: answers[row][col] }]);
   }, [selectedCell, answers, revealCells]);
-
   const revealWord = useCallback(() => {
     const slot = getPlayCurrentSlot();
     if (!slot) return;
@@ -212,7 +283,6 @@ export function useMultiplayerGame(game, me) {
     }
     revealCells(cells);
   }, [getPlayCurrentSlot, answers, revealCells]);
-
   const revealAll = useCallback(() => {
     const cells = [];
     for (let r = 0; r < answers.length; r++) for (let c = 0; c < answers[r].length; c++) if (answers[r][c] !== '#') cells.push({ r, c, letter: answers[r][c] });
@@ -236,10 +306,42 @@ export function useMultiplayerGame(game, me) {
     updateGameFields(game.id, { gamemode: value });
   }, [game.id]);
 
+  const kick = useCallback((playerId) => {
+    kickPlayer(game.id, playerId);
+    chanRef.current?.send({ type: 'broadcast', event: 'kick', payload: { playerId } });
+  }, [game.id]);
+
+  const transferHost = useCallback((playerId) => {
+    setHost(game.id, playerId);
+    setHostId(playerId);
+    chanRef.current?.send({ type: 'broadcast', event: 'host', payload: { hostId: playerId } });
+    pushToast('Host transferred');
+  }, [game.id, pushToast]);
+
+  const rematch = useCallback((newPuzzle) => {
+    updateGameFields(game.id, { puzzle: newPuzzle, state: { grid: blank(newPuzzle.grid) }, status: 'playing' });
+    resetPlayers(game.id);
+    chanRef.current?.send({ type: 'broadcast', event: 'rematch', payload: { puzzle: newPuzzle } });
+    applyRematch(newPuzzle);
+  }, [game.id, applyRematch]);
+
+  // ---- social ----
+  const sendChat = useCallback((text) => {
+    const t = (text || '').trim();
+    if (!t) return;
+    const msg = { player_id: me.id, name: me.name, color: me.color, text: t, created_at: new Date().toISOString() };
+    setChat((c) => [...c, msg]);
+    chanRef.current?.send({ type: 'broadcast', event: 'chat', payload: { msg } });
+    sendChatRow(game.id, { playerId: me.id, name: me.name, color: me.color, text: t });
+  }, [me.id, me.name, me.color, game.id]);
+
+  const sendReaction = useCallback((emoji) => {
+    addReaction(me.name, emoji);
+    chanRef.current?.send({ type: 'broadcast', event: 'reaction', payload: { playerId: me.id, name: me.name, emoji } });
+  }, [addReaction, me.id, me.name]);
+
   const formatTime = useCallback((s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, []);
 
-  // Where every OTHER player's cursor + active word is, keyed by "r,c" with
-  // their colour — so PlayView can render their highlights to everyone.
   const remoteCells = useMemo(() => {
     const map = {};
     for (const p of players) {
@@ -261,9 +363,8 @@ export function useMultiplayerGame(game, me) {
     return map;
   }, [players, me.id, getSlotAt]);
 
-  // The prop surface PlayView consumes, plus multiplayer extras for the view shell.
   return {
-    // PlayView props
+    // PlayView / GameView surface
     playGrid: grid,
     playClues: clues,
     playAnswers: answers,
@@ -286,13 +387,28 @@ export function useMultiplayerGame(game, me) {
     onVirtualKey,
     goToAdjacentClue,
     remoteCells,
-    // multiplayer shell extras
+    circles,
+    shades,
+    // multiplayer shell + social
     isHost,
+    isSpectator,
+    hostId,
+    myId: me.id,
     gamemode,
     setGamemode,
     checkBoard,
     players,
     scores,
+    fills,
+    chat,
+    reactions,
+    toasts,
+    kicked,
+    sendChat,
+    sendReaction,
+    kick,
+    transferHost,
+    rematch,
     code: game.code,
   };
 }

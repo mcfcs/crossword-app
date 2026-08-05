@@ -1997,6 +1997,24 @@ const CrosswordGenerator = () => {
         ? { grid: latestGrid, clues: latestClues, meta: { title: 'Latest puzzle' } }
         : null;
 
+  // Generate a fresh, complete puzzle and RETURN it (no play-state mutation) —
+  // used by the multiplayer Rematch flow.
+  const generateFreshPuzzle = async () => {
+    if (!words.length) throw new Error('Load a word list first.');
+    const layout = layouts[selectedLayoutIndex]?.grid;
+    if (!layout) throw new Error('No layout selected.');
+    const workingWords = filterWordsByDifficulty(words, difficultyChoice);
+    if (!workingWords.length) throw new Error('No words match the difficulty.');
+    const result = await generateCrossword(workingWords, layout, () => {}, 60000, null, [], 'anchor', {});
+    if (!result?.grid || !result.complete) throw new Error('Could not generate a full puzzle — try Crosswithfriends.');
+    const numbered = assignNumbers(result.placements || []);
+    const clueSet = {
+      across: numbered.filter((n) => n.direction === 'across').sort((a, b) => a.number - b.number),
+      down: numbered.filter((n) => n.direction === 'down').sort((a, b) => a.number - b.number),
+    };
+    return { grid: result.grid, clues: clueSet, meta: { title: 'Rematch puzzle' } };
+  };
+
   // ---- Saved puzzles (Supabase) ----
   const buildCurrentPuzzleData = () => {
     const cg = activeTab === 'auto' ? grid : activeTab === 'play' ? playAnswers : manualGrid;
@@ -2343,6 +2361,7 @@ const CrosswordGenerator = () => {
             onConsumeSeed={() => setMpSeedPuzzle(null)}
             authUser={auth.user ? { id: auth.user.id, displayName: auth.displayName } : null}
             autoJoinCode={autoJoinCode}
+            onGeneratePuzzle={generateFreshPuzzle}
           />
         )}
 

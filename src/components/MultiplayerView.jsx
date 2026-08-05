@@ -1,17 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import PlayView from './PlayView';
+import GameView from './GameView';
 import LobbyModal from './LobbyModal';
-import { Play, FolderOpen, X, Share, Check } from './Icons';
+import RematchModal from './RematchModal';
+import Roster from './mp/Roster';
+import ChatPanel from './mp/ChatPanel';
+import Toasts from './mp/Toasts';
+import Reactions from './mp/Reactions';
+import { Play, FolderOpen, X, Share, Check, Maximize, RefreshCw, MessageCircle } from './Icons';
 import { supabaseEnabled } from '../lib/supabase';
 import { useMultiplayerGame } from '../multiplayer/useMultiplayerGame';
 
 const inviteUrl = (code) => `${window.location.origin}${window.location.pathname}?join=${code}`;
 
-// Renders the live board once you're in a game. Uses the multiplayer adapter to
-// drive the unchanged PlayView, plus a lobby panel (code, roster, host controls).
-function MultiplayerBoard({ game, me, onLeave }) {
+// Renders the live board once you're in a game. Drives PlayView (studio) or
+// GameView (immersive) via the multiplayer adapter, plus roster/chat/toasts.
+function MultiplayerBoard({ game, me, onLeave, onGeneratePuzzle }) {
   const mp = useMultiplayerGame(game, me);
   const [copied, setCopied] = useState(false);
+  const [gameView, setGameView] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [rematchOpen, setRematchOpen] = useState(false);
+
   const copyInvite = () => {
     const url = inviteUrl(mp.code);
     (navigator.clipboard?.writeText(url) || Promise.reject())
@@ -19,7 +29,10 @@ function MultiplayerBoard({ game, me, onLeave }) {
       .catch(() => { window.prompt('Copy this invite link:', url); });
   };
 
-  // physical keyboard → shared board
+  // kicked by host → leave
+  useEffect(() => { if (mp.kicked) onLeave(); }, [mp.kicked, onLeave]);
+
+  // physical keyboard → shared board (works for studio + game view)
   useEffect(() => {
     const onKey = (e) => {
       const tag = e.target?.tagName?.toLowerCase();
@@ -33,52 +46,62 @@ function MultiplayerBoard({ game, me, onLeave }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [mp]);
 
+  const doRematch = (puzzle) => { mp.rematch(puzzle); setRematchOpen(false); };
+
   return (
-    <div className="animate-rise-in">
-      <div className="panel panel-pad mb-5 flex flex-wrap items-center gap-4 justify-between">
-        <div>
-          <div className="eyebrow">Game code</div>
-          <div className="flex items-center gap-3">
-            <div className="font-mono text-2xl font-bold tracking-[0.3em] text-ink">{mp.code}</div>
-            <button onClick={copyInvite} className={`btn btn-sm ${copied ? 'btn-ink' : 'btn-ghost'}`}>
-              {copied ? <><Check size={14} />Copied!</> : <><Share size={14} />Invite link</>}
-            </button>
+    <>
+      {gameView ? (
+        <GameView
+          {...mp}
+          onCheckPuzzle={mp.checkBoard}
+          onKick={mp.kick}
+          onTransferHost={mp.transferHost}
+          onRematch={() => setRematchOpen(true)}
+          onCopyInvite={copyInvite}
+          onLeave={onLeave}
+          onExit={() => setGameView(false)}
+        />
+      ) : (
+        <div className="animate-rise-in">
+          <div className="panel panel-pad mb-5">
+            <div className="flex flex-wrap items-center gap-3 justify-between">
+              <div>
+                <div className="eyebrow">Game code</div>
+                <div className="flex items-center gap-3">
+                  <div className="font-mono text-2xl font-bold tracking-[0.3em] text-ink">{mp.code}</div>
+                  <button onClick={copyInvite} className={`btn btn-sm ${copied ? 'btn-ink' : 'btn-ghost'}`}>
+                    {copied ? <><Check size={14} />Copied!</> : <><Share size={14} />Invite link</>}
+                  </button>
+                </div>
+              </div>
+              <div className="flex gap-2 items-center flex-wrap">
+                <button onClick={() => setGameView(true)} className="btn btn-sm btn-ghost"><Maximize size={14} />Game view</button>
+                {mp.isHost && <button onClick={() => mp.setGamemode(mp.gamemode === 'coop' ? 'points' : 'coop')} className="btn btn-sm btn-ghost">Mode · {mp.gamemode === 'coop' ? 'Co-op' : 'Points'}</button>}
+                {mp.isHost && <button onClick={mp.checkBoard} className="btn btn-sm">Check board</button>}
+                {mp.isHost && <button onClick={() => setRematchOpen(true)} className="btn btn-sm btn-ghost"><RefreshCw size={14} />Rematch</button>}
+                <button onClick={() => setChatOpen((o) => !o)} className="btn btn-sm btn-ghost"><MessageCircle size={14} />Chat{mp.chat.length ? ` · ${mp.chat.length}` : ''}</button>
+                <button onClick={onLeave} className="btn btn-sm btn-ghost"><X size={14} />Leave</button>
+              </div>
+            </div>
+            <div className="rule-hair my-3" />
+            <div className="grid sm:grid-cols-2 gap-4">
+              <Roster players={mp.players} scores={mp.scores} fills={mp.fills} gamemode={mp.gamemode} isHost={mp.isHost} hostId={mp.hostId} myId={me.id} onKick={mp.kick} onTransferHost={mp.transferHost} />
+              {chatOpen && <div className="h-64 border border-line rounded-lg px-2"><ChatPanel chat={mp.chat} myId={me.id} onSend={mp.sendChat} onReact={mp.sendReaction} /></div>}
+            </div>
           </div>
-        </div>
 
-        <div className="flex-1 min-w-[180px]">
-          <div className="eyebrow mb-1.5">Players{mp.gamemode === 'points' ? ' · scores' : ''}</div>
-          <div className="flex flex-wrap gap-2">
-            {mp.players.length === 0 && <span className="text-ink-faint text-sm">Connecting…</span>}
-            {mp.players.map((p) => (
-              <span key={p.playerId} className="chip" style={{ borderColor: p.color }}>
-                <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
-                {p.name}{p.playerId === me.id ? ' (you)' : ''}
-                {mp.gamemode === 'points' && <b className="ml-1 text-ink">{mp.scores[p.playerId] || 0}</b>}
-              </span>
-            ))}
-          </div>
+          <PlayView {...mp} canControl={mp.isHost} difficultyInfo={{ score: null, label: '' }} onEnterGameView={() => setGameView(true)} />
         </div>
+      )}
 
-        <div className="flex gap-2 items-center flex-wrap">
-          {mp.isHost && (
-            <>
-              <button onClick={() => mp.setGamemode(mp.gamemode === 'coop' ? 'points' : 'coop')} className="btn btn-sm btn-ghost">
-                Mode · {mp.gamemode === 'coop' ? 'Co-op' : 'Points'}
-              </button>
-              <button onClick={mp.checkBoard} className="btn btn-sm">Check board</button>
-            </>
-          )}
-          <button onClick={onLeave} className="btn btn-sm btn-ghost"><X size={14} />Leave</button>
-        </div>
-      </div>
-
-      <PlayView {...mp} canControl={mp.isHost} difficultyInfo={{ score: null, label: '' }} />
-    </div>
+      <Toasts toasts={mp.toasts} />
+      <Reactions reactions={mp.reactions} />
+      <RematchModal open={rematchOpen} onClose={() => setRematchOpen(false)} onGenerate={onGeneratePuzzle} onPick={doRematch} />
+    </>
   );
 }
 
-const MultiplayerView = ({ puzzle, seedPuzzle, onConsumeSeed, authUser, autoJoinCode }) => {
+const MultiplayerView = ({ puzzle, seedPuzzle, onConsumeSeed, authUser, autoJoinCode, onGeneratePuzzle }) => {
   const [session, setSession] = useState(null); // { game, me }
   // Mounts fresh when you switch to this tab; open the host lobby if Browse
   // handed over a puzzle, or the join lobby if arriving via an invite link.
@@ -96,7 +119,7 @@ const MultiplayerView = ({ puzzle, seedPuzzle, onConsumeSeed, authUser, autoJoin
   }
 
   if (session) {
-    return <MultiplayerBoard game={session.game} me={session.me} onLeave={() => setSession(null)} />;
+    return <MultiplayerBoard game={session.game} me={session.me} onLeave={() => setSession(null)} onGeneratePuzzle={onGeneratePuzzle} />;
   }
 
   return (

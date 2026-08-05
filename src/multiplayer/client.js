@@ -34,13 +34,13 @@ export async function createGame({ puzzle, hostId, hostName, gamemode = 'coop', 
   return game;
 }
 
-export async function joinGame({ code, playerId, name, color }) {
+export async function joinGame({ code, playerId, name, color, isSpectator = false }) {
   if (!supabase) throw new Error('Supabase is not configured.');
   const { data: game, error } = await supabase.from('games').select('*').eq('code', String(code).trim()).maybeSingle();
   if (error) throw error;
   if (!game) throw new Error('No game found for that code.');
   await supabase.from('game_players').upsert(
-    { game_id: game.id, player_id: playerId, display_name: name, color, is_host: game.host_id === playerId },
+    { game_id: game.id, player_id: playerId, display_name: name, color, is_host: game.host_id === playerId, is_spectator: isSpectator },
     { onConflict: 'game_id,player_id' },
   );
   return game;
@@ -64,6 +64,37 @@ export async function updateGameFields(gameId, patch) {
 export async function addScore(gameId, playerId, delta) {
   if (!supabase || !delta) return;
   await supabase.rpc('increment_score', { p_game: gameId, p_player: playerId, p_delta: delta });
+}
+export async function addFills(gameId, playerId, delta) {
+  if (!supabase || !delta) return;
+  await supabase.rpc('increment_fills', { p_game: gameId, p_player: playerId, p_delta: delta });
+}
+export async function resetPlayers(gameId) {
+  if (!supabase) return;
+  await supabase.rpc('reset_game_players', { p_game: gameId });
+}
+
+// ---- chat ----
+export async function sendChatRow(gameId, { playerId, name, color, text }) {
+  if (!supabase) return;
+  await supabase.from('game_chat').insert({ game_id: gameId, player_id: playerId, name, color, text });
+}
+export async function loadChat(gameId) {
+  if (!supabase) return [];
+  const { data } = await supabase.from('game_chat').select('*').eq('game_id', gameId).order('created_at', { ascending: true }).limit(50);
+  return data || [];
+}
+
+// ---- host moderation ----
+export async function kickPlayer(gameId, playerId) {
+  if (!supabase) return;
+  await supabase.from('game_players').delete().eq('game_id', gameId).eq('player_id', playerId);
+}
+export async function setHost(gameId, newHostId) {
+  if (!supabase) return;
+  await supabase.from('games').update({ host_id: newHostId }).eq('id', gameId);
+  await supabase.from('game_players').update({ is_host: false }).eq('game_id', gameId);
+  await supabase.from('game_players').update({ is_host: true }).eq('game_id', gameId).eq('player_id', newHostId);
 }
 
 // A Realtime channel for a game: broadcast (cell edits, host actions) + presence (roster/cursors).
