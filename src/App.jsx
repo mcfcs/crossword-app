@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Languages, Settings, Flame, DownloadCloud, Zap, Share, Search, Volume2, VolumeX } from './components/Icons';
+import { Upload, Download, RefreshCw, Bug, Puzzle, PenTool, X, Check, ChevronRight, ChevronDown, Save, FolderOpen, Grid3X3, Play, BookOpen, Languages, Settings, Flame, DownloadCloud, Zap, Share, Search, Volume2, VolumeX, Maximize } from './components/Icons';
 import BrowseView from './components/BrowseView';
 import MultiplayerView from './components/MultiplayerView';
 import AuthModal from './components/AuthModal';
@@ -11,6 +11,7 @@ import LayoutEditorModal from './components/LayoutEditorModal';
 import LayoutSelector from './components/LayoutSelector';
 import ManualEditor from './components/ManualEditor';
 import PlayView from './components/PlayView';
+import GameView from './components/GameView';
 import RequiredWordsModal from './components/RequiredWordsModal';
 import SettingsModal from './components/SettingsModal';
 import { DEFAULT_LAYOUTS } from './data/layouts';
@@ -84,6 +85,7 @@ const CrosswordGenerator = () => {
   const [playCircles, setPlayCircles] = useState(new Set()); // circled cells (imported puzzles)
   const [playShades, setPlayShades] = useState(new Set());   // shaded cells
   const [rebusMode, setRebusMode] = useState(false);         // type multiple letters into one cell
+  const [gameView, setGameView] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches); // immersive NYT-style view — default on phones
   const [checkedCells, setCheckedCells] = useState(new Set()); // cells shown correctness via one-off Check
   const [usedAssist, setUsedAssist] = useState(false); // any reveal/check used → not a clean solve
   const [confirmDialog, setConfirmDialog] = useState(null); // { title, message, confirmLabel, onConfirm }
@@ -2465,7 +2467,43 @@ const CrosswordGenerator = () => {
           </div>
         )}
 
-        {activeTab === 'play' && playGrid && (
+        {activeTab === 'play' && playGrid && (gameView ? (
+          <GameView
+            playGrid={playGrid}
+            playClues={playClues}
+            playDirection={playDirection}
+            playSelectedCell={playSelectedCell}
+            playAnswers={playAnswers}
+            playComplete={playComplete}
+            playTimer={playTimer}
+            playAutoCheck={playAutoCheck}
+            revealedCells={revealedCells}
+            setPlayAutoCheck={setPlayAutoCheck}
+            revealCell={revealCell}
+            revealWord={revealWord}
+            revealAll={revealAll}
+            handlePlayCellClick={handlePlayCellClick}
+            getNumberForCell={getNumberForCell}
+            getPlayCurrentSlot={getPlayCurrentSlot}
+            setPlaySelectedCell={setPlaySelectedCell}
+            setPlayDirection={setPlayDirection}
+            formatTime={formatTime}
+            onVirtualKey={applyPlayKey}
+            goToAdjacentClue={goToAdjacentClue}
+            paused={playPaused}
+            onTogglePause={togglePlayPause}
+            checkedCells={checkedCells}
+            onCheckSquare={checkSquare}
+            onCheckWord={checkWord}
+            onCheckPuzzle={checkPuzzle}
+            onClearWord={clearCurrentWord}
+            circles={playCircles}
+            shades={playShades}
+            rebusOn={rebusMode}
+            onToggleRebus={() => setRebusMode(v => !v)}
+            onExit={() => setGameView(false)}
+          />
+        ) : (
           <PlayView
             playGrid={playGrid}
             playClues={playClues}
@@ -2501,8 +2539,9 @@ const CrosswordGenerator = () => {
             shades={playShades}
             rebusOn={rebusMode}
             onToggleRebus={() => setRebusMode(v => !v)}
+            onEnterGameView={() => setGameView(true)}
           />
-        )}
+        ))}
         
         {activeTab === 'play' && !playGrid && (
           <div className="panel p-12 text-center animate-rise-in">

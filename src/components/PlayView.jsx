@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import { ChevronDown, ChevronRight, Trophy } from './Icons';
+import { ChevronDown, ChevronRight, Trophy, Maximize } from './Icons';
 import MobileSolveDock from './MobileSolveDock';
+import CrosswordGrid from './CrosswordGrid';
 import { renderRich } from '../utils/richText';
 
 const PlayView = ({
@@ -38,7 +39,8 @@ const PlayView = ({
   circles = null,
   shades = null,
   rebusOn = false,
-  onToggleRebus = null
+  onToggleRebus = null,
+  onEnterGameView = null
 }) => {
   const cluesContainerRef = useRef(null);
   const clueRefs = useRef({});
@@ -78,12 +80,6 @@ const PlayView = ({
 
   if (!playGrid) return null;
 
-  const inActiveWord = (r, c) => {
-    if (!activeSlot) return false;
-    if (activeSlot.direction === 'across') return r === activeSlot.row && c >= activeSlot.col && c < activeSlot.col + activeSlot.length;
-    return c === activeSlot.col && r >= activeSlot.row && r < activeSlot.row + activeSlot.length;
-  };
-
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-rise-in pb-72 lg:pb-0">
       <div className="xl:col-span-2 space-y-5">
@@ -95,6 +91,11 @@ const PlayView = ({
                 <span className="eyebrow">Time</span>
                 <span className="font-mono text-2xl font-medium text-ink tabular-nums">{formatTime(playTimer)}</span>
               </div>
+              {onEnterGameView && (
+                <button onClick={onEnterGameView} className="btn btn-sm btn-ghost" title="Immersive game view">
+                  <Maximize size={14} />Game view
+                </button>
+              )}
               {onTogglePause && !playComplete && (
                 <button onClick={onTogglePause} className={`btn btn-sm ${paused ? 'btn-accent' : 'btn-ghost'}`}>
                   {paused ? 'Resume' : 'Pause'}
@@ -152,79 +153,22 @@ const PlayView = ({
             </div>
           )}
           <div className="overflow-x-auto pb-2">
-            <div className="xw-grid xw-grid--play" style={{ '--cols': playGrid[0]?.length || 15 }}>
-              {playGrid.map((row, r) => (
-                <div key={r} className="flex">
-                  {row.map((cell, c) => {
-                    const isSelected = playSelectedCell?.row === r && playSelectedCell?.col === c;
-                    const isInWord = inActiveWord(r, c);
-                    const isRevealed = revealedCells.has(`${r},${c}`);
-                    const isChecked = checkedCells?.has(`${r},${c}`);
-                    const showCorrectness = (playAutoCheck || playComplete || isChecked) && !!playAnswers;
-                    const isCorrect = showCorrectness && cell === playAnswers[r][c] && cell !== '';
-                    const isWrong = showCorrectness && cell !== '' && cell !== playAnswers[r][c];
-                    const clueNumber = getNumberForCell(r, c, playClues);
-                    const clueObj = clueNumber ? (playClues.across.find(cl => cl.number === clueNumber) || playClues.down.find(cl => cl.number === clueNumber)) : null;
-                    const isSlotFilled = (slot) => {
-                      if (!slot) return false;
-                      for (let i = 0; i < slot.length; i++) {
-                        const rr = slot.direction === 'across' ? slot.row : slot.row + i;
-                        const cc = slot.direction === 'across' ? slot.col + i : slot.col;
-                        const ch = playGrid[rr]?.[cc];
-                        if (!ch || ch === '#') return false;
-                      }
-                      return true;
-                    };
-                    const missingClue = clueObj && isSlotFilled(clueObj) && !clueObj.clue;
-
-                    const fill = cell === '#'
-                      ? 'xw-cell--block'
-                      : isSelected
-                        ? 'bg-select ring-1 ring-inset ring-ink/30'
-                        : isInWord
-                          ? 'bg-word'
-                          : missingClue && cell
-                            ? 'bg-gold/15'
-                            : '';
-                    const letterColor = isRevealed
-                      ? 'text-revealed'
-                      : isWrong ? 'text-wrong' : isCorrect ? 'text-correct' : 'text-ink';
-                    const cellKey = `${r},${c}`;
-                    const remote = cell !== '#' ? remoteCells[cellKey] : null;
-                    const shaded = cell !== '#' && shades?.has(cellKey);
-                    const circled = cell !== '#' && circles?.has(cellKey);
-                    const isRebus = cell && cell.length > 1;
-
-                    return (
-                      <div
-                        key={c}
-                        onClick={() => handlePlayCellClick(r, c)}
-                        className={`xw-cell ${cell === '#' ? '' : 'cursor-pointer'} ${fill}`}
-                      >
-                        {shaded && <span className="absolute inset-0 pointer-events-none bg-ink/15" />}
-                        {circled && <span className="absolute inset-[9%] pointer-events-none rounded-full border border-ink/45" />}
-                        {remote && (
-                          <span
-                            className="absolute inset-0 pointer-events-none"
-                            title={remote.name}
-                            style={{
-                              backgroundColor: remote.tint ? `${remote.tint}24` : undefined,
-                              boxShadow: remote.ring ? `inset 0 0 0 2.5px ${remote.ring}` : undefined,
-                            }}
-                          />
-                        )}
-                        {cell !== '#' && clueNumber && (
-                          <span className="xw-num">{clueNumber}</span>
-                        )}
-                        {cell !== '#' && cell && (
-                          <span className={`xw-letter ${letterColor} ${isRebus ? 'text-[0.42em] leading-[1.05] font-bold px-0.5 text-center' : ''}`}>{cell}</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
+            <CrosswordGrid
+              playGrid={playGrid}
+              playAnswers={playAnswers}
+              playClues={playClues}
+              playSelectedCell={playSelectedCell}
+              activeSlot={activeSlot}
+              revealedCells={revealedCells}
+              playAutoCheck={playAutoCheck}
+              playComplete={playComplete}
+              checkedCells={checkedCells}
+              circles={circles}
+              shades={shades}
+              remoteCells={remoteCells}
+              getNumberForCell={getNumberForCell}
+              onCellClick={handlePlayCellClick}
+            />
           </div>
           <p className="text-ink-faint text-xs mt-4">Click a cell to select · click again to flip Across/Down · type to fill · arrow keys to move.</p>
         </div>

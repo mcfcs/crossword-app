@@ -238,6 +238,11 @@
     /* on tablet/desktop just use the max size (no fitting needed) */
     .xw-grid { --cell: var(--cell-max); }
   }
+  /* Immersive Game view: fill the screen width, bigger cap. */
+  .xw-grid--game {
+    --cell-max: 3.25rem;
+    --cell: min(var(--cell-max), calc((100vw - 1.5rem) / var(--cols)));
+  }
   .xw-cell {
     position: relative;
     width: var(--cell);

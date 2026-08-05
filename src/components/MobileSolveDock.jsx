@@ -22,7 +22,7 @@ const MobileSolveDock = ({ clueNumber, clueDirection, clueText, onPrev, onNext, 
          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
       {/* current clue bar */}
       <div className="flex items-stretch gap-2 px-2 pt-2">
-        <button onPointerDown={press(onPrev)} className="kbd-key w-11 shrink-0" aria-label="Previous clue">
+        <button onPointerDown={press(onPrev)} className="w-11 shrink-0 flex items-center justify-center rounded-lg bg-paper-raised border border-line active:bg-word/60" aria-label="Previous clue">
           <ChevronLeft size={20} />
         </button>
         <button onPointerDown={press(onToggleDir)}
@@ -30,9 +30,9 @@ const MobileSolveDock = ({ clueNumber, clueDirection, clueText, onPrev, onNext, 
           <div className="eyebrow text-[0.58rem] leading-none mb-0.5">
             {clueNumber ? `${clueNumber} ${clueDirection === 'across' ? 'Across' : 'Down'}` : 'Tap a cell'}
           </div>
-          <div className="text-sm text-ink leading-snug truncate">{clueText ? renderRich(clueText) : '—'}</div>
+          <div className="text-sm text-ink leading-snug break-words line-clamp-2">{clueText ? renderRich(clueText) : '—'}</div>
         </button>
-        <button onPointerDown={press(onNext)} className="kbd-key w-11 shrink-0" aria-label="Next clue">
+        <button onPointerDown={press(onNext)} className="w-11 shrink-0 flex items-center justify-center rounded-lg bg-paper-raised border border-line active:bg-word/60" aria-label="Next clue">
           <ChevronRight size={20} />
         </button>
       </div>
