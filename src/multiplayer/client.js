@@ -57,6 +57,13 @@ export async function persistState(gameId, state) {
   if (!supabase) return;
   await supabase.from('games').update({ state }).eq('id', gameId);
 }
+// Re-read the authoritative board so a (re)joining/reconnecting client can
+// reconcile any broadcasts it missed while disconnected.
+export async function loadState(gameId) {
+  if (!supabase) return null;
+  const { data } = await supabase.from('games').select('state').eq('id', gameId).maybeSingle();
+  return data?.state || null;
+}
 export async function updateGameFields(gameId, patch) {
   if (!supabase) return;
   await supabase.from('games').update(patch).eq('id', gameId);

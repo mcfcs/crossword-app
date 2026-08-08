@@ -32,14 +32,18 @@ function MultiplayerBoard({ game, me, onLeave, onGeneratePuzzle }) {
   // kicked by host → leave
   useEffect(() => { if (mp.kicked) onLeave(); }, [mp.kicked, onLeave]);
 
+  // Leave cleanly: hand off host / drop from roster before tearing down.
+  const handleLeave = async () => { try { await mp.leaveGame(); } catch { /* ignore */ } onLeave(); };
+
   // physical keyboard → shared board (works for studio + game view)
   useEffect(() => {
     const onKey = (e) => {
       const tag = e.target?.tagName?.toLowerCase();
       if (['input', 'textarea', 'select'].includes(tag) || e.target?.isContentEditable) return;
-      if (e.key === 'Backspace' || e.key.startsWith('Arrow') || (e.key.length === 1 && /[a-zA-Z]/.test(e.key))) {
+      const navKey = e.key === 'Enter' || e.key === ' ' || e.key === 'Tab';
+      if (e.key === 'Backspace' || e.key.startsWith('Arrow') || navKey || (e.key.length === 1 && /[a-zA-Z]/.test(e.key))) {
         e.preventDefault();
-        mp.onVirtualKey(e.key);
+        mp.onVirtualKey(e.key === 'Tab' && e.shiftKey ? 'ShiftTab' : e.key);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -58,7 +62,7 @@ function MultiplayerBoard({ game, me, onLeave, onGeneratePuzzle }) {
           onTransferHost={mp.transferHost}
           onRematch={() => setRematchOpen(true)}
           onCopyInvite={copyInvite}
-          onLeave={onLeave}
+          onLeave={handleLeave}
           onExit={() => setGameView(false)}
         />
       ) : (
@@ -80,9 +84,14 @@ function MultiplayerBoard({ game, me, onLeave, onGeneratePuzzle }) {
                 {mp.isHost && <button onClick={mp.checkBoard} className="btn btn-sm">Check board</button>}
                 {mp.isHost && <button onClick={() => setRematchOpen(true)} className="btn btn-sm btn-ghost"><RefreshCw size={14} />Rematch</button>}
                 <button onClick={() => setChatOpen((o) => !o)} className="btn btn-sm btn-ghost"><MessageCircle size={14} />Chat{mp.chat.length ? ` · ${mp.chat.length}` : ''}</button>
-                <button onClick={onLeave} className="btn btn-sm btn-ghost"><X size={14} />Leave</button>
+                <button onClick={handleLeave} className="btn btn-sm btn-ghost"><X size={14} />Leave</button>
               </div>
             </div>
+            {!mp.connected && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-ink-faint">
+                <span className="inline-block w-2 h-2 rounded-full bg-wrong animate-pulse" />Reconnecting…
+              </div>
+            )}
             <div className="rule-hair my-3" />
             <div className="grid sm:grid-cols-2 gap-4">
               <Roster players={mp.players} scores={mp.scores} fills={mp.fills} gamemode={mp.gamemode} isHost={mp.isHost} hostId={mp.hostId} myId={me.id} onKick={mp.kick} onTransferHost={mp.transferHost} />

@@ -21,7 +21,7 @@ const GameView = (props) => {
     setPlayAutoCheck, revealCell, revealWord, revealAll, onCheckSquare, onCheckWord, onCheckPuzzle, onClearWord,
     paused, onTogglePause, rebusOn, onToggleRebus, onExit,
     // multiplayer (all optional — absent in single-player)
-    remoteCells, code, onCopyInvite, isHost, hostId, myId, gamemode, setGamemode,
+    remoteCells, code, onCopyInvite, isHost, hostId, myId, gamemode, setGamemode, connected,
     players, scores, fills, chat, sendChat, sendReaction, onKick, onTransferHost, onRematch, onLeave,
   } = props;
 
@@ -81,6 +81,12 @@ const GameView = (props) => {
         <button onClick={() => setDrawerOpen(true)} className="w-10 h-10 flex items-center justify-center text-ink-soft" title="Clue list" aria-label="Clue list"><List size={20} /></button>
         <button onClick={() => setMenuOpen((o) => !o)} className="w-10 h-10 flex items-center justify-center text-ink-soft" title="More" aria-label="More"><MoreHorizontal size={22} /></button>
       </div>
+
+      {multiplayer && connected === false && (
+        <div className="shrink-0 flex items-center justify-center gap-2 py-1 text-xs text-ink-faint bg-wrong/8 border-b border-line">
+          <span className="inline-block w-2 h-2 rounded-full bg-wrong animate-pulse" />Reconnecting…
+        </div>
+      )}
 
       {/* grid */}
       <div className="flex-1 min-h-0 overflow-auto flex items-start justify-center p-3 relative">

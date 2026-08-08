@@ -7,7 +7,7 @@ import { findSlots, getCellNumber } from '../utils/crosswordUtils';
 import { supabase } from '../lib/supabase';
 import { sfx } from '../utils/sound';
 import {
-  openChannel, loadPlayers, persistState, updateGameFields, addScore,
+  openChannel, loadPlayers, persistState, loadState, updateGameFields, addScore,
   addFills, resetPlayers, sendChatRow, loadChat, kickPlayer, setHost,
 } from './client';
 
@@ -32,6 +32,7 @@ export function useMultiplayerGame(game, me) {
   const [gamemode, setGamemodeState] = useState(game.gamemode || 'coop');
   const [revealedCells, setRevealedCells] = useState(new Set());
   const [players, setPlayers] = useState([]);
+  const [cursors, setCursors] = useState({}); // playerId -> { r, c, dir } (via broadcast, not presence)
   const [scores, setScores] = useState({});
   const [fills, setFills] = useState({});
   const [complete, setComplete] = useState(false);
@@ -41,16 +42,22 @@ export function useMultiplayerGame(game, me) {
   const [toasts, setToasts] = useState([]);
   const [hostId, setHostId] = useState(game.host_id);
   const [kicked, setKicked] = useState(false);
+  const [connected, setConnected] = useState(false);
 
   const isHost = hostId === me.id;
   const isSpectator = !!me.isSpectator;
 
   const chanRef = useRef(null);
+  const subscribedRef = useRef(false);
   const gridRef = useRef(grid); gridRef.current = grid;
   const answersRef = useRef(answers); answersRef.current = answers;
+  const playersRef = useRef([]); playersRef.current = players;
+  const selectionRef = useRef({ row: null, col: null, dir: 'across' });
   const scoredCells = useRef(new Set());
   const scoredWords = useRef(new Set());
   const persistTimer = useRef(null);
+  const cursorTimer = useRef(null);
+  const lastCursor = useRef(0);
   const myFillsRef = useRef(0);
   const prevPlayersRef = useRef(new Map());
   const seqRef = useRef(0);
@@ -97,6 +104,45 @@ export function useMultiplayerGame(game, me) {
     persistTimer.current = setTimeout(() => persistState(game.id, { grid: gridRef.current }), 1500);
   }, [game.id]);
 
+  // Presence holds IDENTITY only and is tracked rarely (join / reconnect / tab
+  // focus). Calling track() rapidly gets the channel shut down by the server, so
+  // the frequently-changing cursor position goes over broadcast instead (below).
+  const trackIdentity = useCallback(() => (
+    chanRef.current?.track?.({ playerId: me.id, name: me.name, color: me.color, spectator: isSpectator })
+  ), [me.id, me.name, me.color, isSpectator]);
+
+  // Cursor position → throttled broadcast (safe at high frequency, unlike track()).
+  const broadcastCursor = useCallback(() => {
+    const emit = () => {
+      lastCursor.current = Date.now();
+      const { row, col, dir } = selectionRef.current;
+      chanRef.current?.send({ type: 'broadcast', event: 'cursor', payload: { playerId: me.id, r: row, c: col, dir } });
+    };
+    const since = Date.now() - lastCursor.current;
+    clearTimeout(cursorTimer.current);
+    if (since >= 120) emit(); else cursorTimer.current = setTimeout(emit, 120 - since);
+  }, [me.id]);
+
+  // Pull the authoritative board and merge in any cells we're missing (fill
+  // only where we're empty), so a (re)join recovers broadcasts missed offline
+  // without clobbering local edits. Runs on every SUBSCRIBED (initial + rejoin).
+  const reconcile = useCallback(async () => {
+    const st = await loadState(game.id);
+    const remote = st?.grid;
+    if (!remote) return;
+    setGrid((g) => {
+      let changed = false;
+      const ng = g.map((row, r) => row.map((cell, c) => {
+        const rc = remote[r]?.[c];
+        if (!cell && rc && rc !== '#') { changed = true; return rc; }
+        return cell;
+      }));
+      if (!changed) return g;
+      checkComplete(ng);
+      return ng;
+    });
+  }, [game.id, checkComplete]);
+
   const applyRematch = useCallback((newPuzzle) => {
     setPuzzle(newPuzzle);
     setGrid(blank(newPuzzle.grid));
@@ -115,6 +161,10 @@ export function useMultiplayerGame(game, me) {
 
     ch.on('broadcast', { event: 'cell' }, ({ payload }) => {
       setGrid((g) => { const ng = g.map((row) => [...row]); if (ng[payload.r]?.[payload.c] !== undefined) ng[payload.r][payload.c] = payload.letter; checkComplete(ng); return ng; });
+    });
+    ch.on('broadcast', { event: 'cursor' }, ({ payload }) => {
+      if (payload.playerId === me.id) return;
+      setCursors((m) => ({ ...m, [payload.playerId]: { r: payload.r, c: payload.c, dir: payload.dir } }));
     });
     ch.on('broadcast', { event: 'reveal' }, ({ payload }) => {
       setGrid((g) => { const ng = g.map((row) => [...row]); payload.cells.forEach(({ r, c, letter }) => { if (ng[r]?.[c] !== undefined) ng[r][c] = letter; }); checkComplete(ng); return ng; });
@@ -145,26 +195,46 @@ export function useMultiplayerGame(game, me) {
       prevPlayersRef.current = cur;
     });
 
+    // Fires on the initial join AND again after every auto-rejoin, so this is
+    // where we re-establish presence + reconcile the board after any drop.
     ch.subscribe(async (status) => {
-      if (status !== 'SUBSCRIBED') return;
-      await ch.track({ playerId: me.id, name: me.name, color: me.color, r: null, c: null, dir: 'across', spectator: isSpectator });
-      const ps = await loadPlayers(game.id);
-      setScores(Object.fromEntries(ps.map((p) => [p.player_id, p.score])));
-      setFills(Object.fromEntries(ps.map((p) => [p.player_id, p.fills || 0])));
-      myFillsRef.current = ps.find((p) => p.player_id === me.id)?.fills || 0;
-      setChat(await loadChat(game.id));
+      if (status === 'SUBSCRIBED') {
+        subscribedRef.current = true;
+        setConnected(true);
+        await trackIdentity();
+        broadcastCursor();
+        await reconcile();
+        const ps = await loadPlayers(game.id);
+        setScores(Object.fromEntries(ps.map((p) => [p.player_id, p.score])));
+        setFills(Object.fromEntries(ps.map((p) => [p.player_id, p.fills || 0])));
+        myFillsRef.current = ps.find((p) => p.player_id === me.id)?.fills || 0;
+        setChat(await loadChat(game.id));
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        subscribedRef.current = false;
+        setConnected(false);
+      }
     });
 
-    return () => { try { supabase.removeChannel(ch); } catch { /* ignore */ } };
+    // Presence goes stale when a tab is backgrounded (socket throttled/closed);
+    // re-track identity on return so the player doesn't vanish into a "solo lobby".
+    const onVisible = () => { if (document.visibilityState === 'visible' && subscribedRef.current) { trackIdentity(); broadcastCursor(); } };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      subscribedRef.current = false;
+      try { supabase.removeChannel(ch); } catch { /* ignore */ }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.id]);
 
   // ---- celebrate on completion (shared board finishes together) ----
   useEffect(() => { if (complete) { sfx.win(); pushToast('Puzzle solved! 🎉'); } }, [complete, pushToast]);
 
-  // ---- broadcast own cursor on selection change ----
+  // ---- broadcast own cursor on selection change (throttled; only once subscribed) ----
   useEffect(() => {
-    chanRef.current?.track?.({ playerId: me.id, name: me.name, color: me.color, r: selectedCell?.row ?? null, c: selectedCell?.col ?? null, dir: direction, spectator: isSpectator });
+    selectionRef.current = { row: selectedCell?.row ?? null, col: selectedCell?.col ?? null, dir: direction };
+    if (subscribedRef.current) broadcastCursor();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCell, direction]);
 
@@ -222,7 +292,26 @@ export function useMultiplayerGame(game, me) {
     schedulePersist();
   }, [isSpectator, checkComplete, scoreForLetter, schedulePersist, bumpFills]);
 
+  // Global clue order: all across (by number), then all down, wrapping. Enter /
+  // Space / Tab and the ‹ › arrows use this so you flow across→down→across.
+  const goToNextClue = useCallback((delta = 1) => {
+    const across = (clues.across || []).map((cl) => ({ row: cl.row, col: cl.col, dir: 'across' }));
+    const down = (clues.down || []).map((cl) => ({ row: cl.row, col: cl.col, dir: 'down' }));
+    const list = [...across, ...down];
+    if (!list.length) return;
+    const slot = getPlayCurrentSlot();
+    let idx = slot ? list.findIndex((cl) => cl.dir === direction && cl.row === slot.row && cl.col === slot.col) : -1;
+    if (idx === -1) idx = delta > 0 ? -1 : 0;
+    const nx = ((idx + delta) % list.length + list.length) % list.length;
+    const target = list[nx];
+    setDirection(target.dir);
+    setSelectedCell({ row: target.row, col: target.col });
+  }, [direction, clues, getPlayCurrentSlot]);
+  const goToAdjacentClue = goToNextClue; // arrows now cross across↔down too
+
   const onVirtualKey = useCallback((k) => {
+    if (k === 'Enter' || k === ' ' || k === 'Tab') { goToNextClue(1); return; }
+    if (k === 'ShiftTab') { goToNextClue(-1); return; }
     if (isSpectator || !selectedCell) return;
     const { row, col } = selectedCell;
     const blocked = (r, c) => r < 0 || c < 0 || r >= grid.length || c >= grid[0].length || grid[r][c] === '#';
@@ -242,22 +331,13 @@ export function useMultiplayerGame(game, me) {
     else if (k === 'ArrowLeft' && !blocked(row, col - 1)) { setSelectedCell({ row, col: col - 1 }); setDirection('across'); }
     else if (k === 'ArrowDown' && !blocked(row + 1, col)) { setSelectedCell({ row: row + 1, col }); setDirection('down'); }
     else if (k === 'ArrowUp' && !blocked(row - 1, col)) { setSelectedCell({ row: row - 1, col }); setDirection('down'); }
-  }, [isSpectator, selectedCell, direction, grid, writeCell]);
+  }, [isSpectator, selectedCell, direction, grid, writeCell, goToNextClue]);
 
   const handlePlayCellClick = useCallback((r, c) => {
     if (grid[r][c] === '#') return;
     if (selectedCell?.row === r && selectedCell?.col === c) setDirection((d) => (d === 'across' ? 'down' : 'across'));
     else setSelectedCell({ row: r, col: c });
   }, [grid, selectedCell]);
-
-  const goToAdjacentClue = useCallback((delta) => {
-    const list = direction === 'across' ? clues.across : clues.down;
-    if (!list?.length) return;
-    const slot = getPlayCurrentSlot();
-    let idx = slot ? list.findIndex((cl) => cl.row === slot.row && cl.col === slot.col) : -1;
-    idx = idx === -1 ? 0 : (idx + delta + list.length) % list.length;
-    setSelectedCell({ row: list[idx].row, col: list[idx].col });
-  }, [direction, clues, getPlayCurrentSlot]);
 
   // ---- host actions ----
   const revealCells = useCallback((cells) => {
@@ -325,6 +405,18 @@ export function useMultiplayerGame(game, me) {
     applyRematch(newPuzzle);
   }, [game.id, applyRematch]);
 
+  // Leaving cleanly: if I'm the host, pass the crown to another active player so
+  // the game keeps going (end it only if nobody else is left), then drop myself
+  // from the roster. Channel teardown happens on unmount.
+  const leaveGame = useCallback(async () => {
+    if (isHost) {
+      const next = playersRef.current.find((p) => p.playerId && p.playerId !== me.id && !p.spectator);
+      if (next) transferHost(next.playerId);
+      else await updateGameFields(game.id, { status: 'ended' });
+    }
+    await kickPlayer(game.id, me.id);
+  }, [isHost, me.id, game.id, transferHost]);
+
   // ---- social ----
   const sendChat = useCallback((text) => {
     const t = (text || '').trim();
@@ -342,11 +434,16 @@ export function useMultiplayerGame(game, me) {
 
   const formatTime = useCallback((s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, []);
 
+  // Identity (name/color) comes from presence; the live cursor position comes
+  // from the broadcast 'cursor' stream. Merge them per player.
   const remoteCells = useMemo(() => {
     const map = {};
-    for (const p of players) {
-      if (!p || p.playerId === me.id || p.r == null || p.c == null) continue;
-      const slot = getSlotAt({ row: p.r, col: p.c }, p.dir || 'across');
+    const byId = new Map(players.filter((p) => p?.playerId).map((p) => [p.playerId, p]));
+    for (const [pid, cur] of Object.entries(cursors)) {
+      if (pid === me.id || cur.r == null || cur.c == null) continue;
+      const p = byId.get(pid);
+      if (!p) continue; // only show cursors for currently-present players
+      const slot = getSlotAt({ row: cur.r, col: cur.c }, cur.dir || 'across');
       if (slot) {
         for (let i = 0; i < slot.length; i++) {
           const rr = slot.direction === 'across' ? slot.row : slot.row + i;
@@ -355,13 +452,13 @@ export function useMultiplayerGame(game, me) {
           (map[k] = map[k] || {}).tint = p.color;
         }
       }
-      const ck = `${p.r},${p.c}`;
-      const cur = (map[ck] = map[ck] || {});
-      cur.ring = p.color;
-      cur.name = p.name;
+      const ck = `${cur.r},${cur.c}`;
+      const m = (map[ck] = map[ck] || {});
+      m.ring = p.color;
+      m.name = p.name;
     }
     return map;
-  }, [players, me.id, getSlotAt]);
+  }, [players, cursors, me.id, getSlotAt]);
 
   return {
     // PlayView / GameView surface
@@ -386,6 +483,7 @@ export function useMultiplayerGame(game, me) {
     formatTime,
     onVirtualKey,
     goToAdjacentClue,
+    goToNextClue,
     remoteCells,
     circles,
     shades,
@@ -409,6 +507,8 @@ export function useMultiplayerGame(game, me) {
     kick,
     transferHost,
     rematch,
+    leaveGame,
+    connected,
     code: game.code,
   };
 }

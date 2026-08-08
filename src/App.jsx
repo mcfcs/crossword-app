@@ -1443,10 +1443,14 @@ const CrosswordGenerator = () => {
   // Core Play input — shared by the physical keyboard and the on-screen keyboard.
   const applyPlayKey = (key) => {
     if (playPaused) return; // no input while paused
+
+    // Clue navigation (across→down→wrap) — works with or without a selection.
+    if (key === 'Enter') { if (rebusMode) { setRebusMode(false); return; } goToNextClue(1); return; }
+    if (key === ' ' || key === 'Tab') { goToNextClue(1); return; }
+    if (key === 'ShiftTab') { goToNextClue(-1); return; }
+
     if (!playSelectedCell || !playGrid) return;
     const { row, col } = playSelectedCell;
-
-    if (key === 'Enter') { setRebusMode(false); return; }
 
     // Rebus entry: letters accumulate in the current cell, backspace trims it.
     if (rebusMode) {
@@ -1550,24 +1554,31 @@ const CrosswordGenerator = () => {
   const handlePlayKeyDown = (e) => {
     if (showDictionary || showRequiredModal || showLayoutModal) return;
     if (isFormElement(e.target)) return;
-    if (activeTab !== 'play' || !playSelectedCell || !playGrid) return;
-    if (e.key === 'Backspace' || e.key.startsWith('Arrow') || (e.key.length === 1 && /[a-zA-Z]/.test(e.key))) {
+    if (activeTab !== 'play' || !playGrid) return;
+    const navKey = e.key === 'Enter' || e.key === ' ' || e.key === 'Tab';
+    if (e.key === 'Backspace' || e.key.startsWith('Arrow') || navKey || (e.key.length === 1 && /[a-zA-Z]/.test(e.key))) {
       e.preventDefault();
     }
-    applyPlayKey(e.key);
+    applyPlayKey(e.key === 'Tab' && e.shiftKey ? 'ShiftTab' : e.key);
   };
 
-  // Jump the selection to the next/previous clue in the active direction (wraps).
-  const goToAdjacentClue = (delta) => {
+  // Jump the selection to the next/previous clue in global order: all across
+  // (by number), then all down, wrapping. Enter/Space/Tab and ‹ › use this.
+  const goToNextClue = (delta = 1) => {
     if (!playClues) return;
-    const list = playDirection === 'across' ? playClues.across : playClues.down;
-    if (!list || list.length === 0) return;
+    const across = (playClues.across || []).map(cl => ({ row: cl.row, col: cl.col, dir: 'across' }));
+    const down = (playClues.down || []).map(cl => ({ row: cl.row, col: cl.col, dir: 'down' }));
+    const list = [...across, ...down];
+    if (!list.length) return;
     const slot = getPlayCurrentSlot();
-    let idx = slot ? list.findIndex(c => c.row === slot.row && c.col === slot.col) : -1;
-    idx = idx === -1 ? 0 : (idx + delta + list.length) % list.length;
-    const c = list[idx];
-    setPlaySelectedCell({ row: c.row, col: c.col });
+    let idx = slot ? list.findIndex(c => c.dir === playDirection && c.row === slot.row && c.col === slot.col) : -1;
+    if (idx === -1) idx = delta > 0 ? -1 : 0;
+    const nx = ((idx + delta) % list.length + list.length) % list.length;
+    const target = list[nx];
+    setPlayDirection(target.dir);
+    setPlaySelectedCell({ row: target.row, col: target.col });
   };
+  const goToAdjacentClue = goToNextClue; // arrows now cross across↔down too
   
   const checkPlayComplete = (currentGrid) => {
     if (!playAnswers) return;
